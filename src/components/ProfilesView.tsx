@@ -21,21 +21,23 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({
     const [msg, setMsg] = useState({ text: '', type: '' });
 
     // Determine which roles current user can create
-    let allowedRoles: UserRole[] = [];
-    if (currentUser.role === 'super_admin') {
-        allowedRoles = ['admin_principal'];
-    } else if (currentUser.role === 'admin_principal') {
-        allowedRoles = ['supervisor'];
-    } else if (currentUser.role === 'supervisor') {
-        allowedRoles = ['agent'];
-    }
+    const allowedRoles = React.useMemo<UserRole[]>(() => {
+        if (currentUser.role === 'super_admin') {
+            return ['admin_principal'];
+        } else if (currentUser.role === 'admin_principal') {
+            return ['supervisor'];
+        } else if (currentUser.role === 'supervisor') {
+            return ['agent'];
+        }
+        return [];
+    }, [currentUser.role]);
 
     // Pre-load default role selection
     React.useEffect(() => {
         if (allowedRoles.length > 0) {
             setTargetRole(allowedRoles[0]);
         }
-    }, [currentUser]);
+    }, [currentUser, allowedRoles]);
 
     // Filters profiles depending on hierarchical rules
     const visibleProfiles = profiles.filter(p => {

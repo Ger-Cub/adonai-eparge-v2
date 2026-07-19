@@ -1803,6 +1803,56 @@ textarea.form-control {
   max-width: 420px;
   border-left: 4px solid var(--primary);
   animation: slideInUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  position: relative;
+}
+
+/* Close button on top-right corner outside the toast */
+.toast-close-btn {
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--text-light);
+  transition: all 0.2s ease;
+  z-index: 10001;
+}
+
+.toast-close-btn:hover {
+  color: var(--error-color);
+  border-color: var(--error-color);
+  transform: scale(1.1);
+}
+
+/* Undo / Cancel button inside the toast */
+.btn-toast-undo {
+  margin-top: 8px;
+  align-self: flex-start;
+  background-color: var(--primary-light);
+  color: var(--primary);
+  border: 1px solid rgba(92, 59, 254, 0.2);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-toast-undo:hover {
+  background-color: var(--primary);
+  color: white;
+  border-color: var(--primary);
 }
 
 .notification-toast.success {

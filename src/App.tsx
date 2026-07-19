@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   dbSimulated,
   isSupabaseConfigured
@@ -72,9 +72,27 @@ function App() {
     }
   ]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const [activeToast, setActiveToast] = useState<{ title: string; message: string; type: string } | null>(null);
+  const [activeToast, setActiveToast] = useState<{ 
+    title: string; 
+    message: string; 
+    type: string; 
+    onUndo?: () => void; 
+  } | null>(null);
+  const toastTimeoutRef = useRef<any>(null);
 
-  const showNotification = (title: string, message: string, type: 'info' | 'success' | 'warning' = 'info') => {
+  const closeToast = () => {
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+    setActiveToast(null);
+  };
+
+  const showNotification = (
+    title: string, 
+    message: string, 
+    type: 'info' | 'success' | 'warning' = 'info',
+    options?: { onUndo?: () => void }
+  ) => {
     const newNotif: AppNotification = {
       id: `notif-${Math.random().toString(36).substring(2, 9)}`,
       title,
@@ -84,10 +102,15 @@ function App() {
       read: false
     };
     setNotifications(prev => [newNotif, ...prev]);
-    setActiveToast({ title, message, type });
-    setTimeout(() => {
+    setActiveToast({ title, message, type, onUndo: options?.onUndo });
+
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+
+    toastTimeoutRef.current = setTimeout(() => {
       setActiveToast(null);
-    }, 4500);
+    }, 18000); // 18 seconds auto-close to give time for undo action
   };
 
   const markAllAsRead = () => {
@@ -278,9 +301,26 @@ function App() {
   };
 
   const handleAddDeposit = (deposit: Omit<CarnetDeposit, 'id' | 'slots_count' | 'created_at' | 'updated_at'>) => {
-    dbSimulated.addDeposit(deposit);
-    showNotification('Versement Validé', `Dépôt de ${deposit.amount} FC enregistré.`, 'success');
+    const newDep = dbSimulated.addDeposit(deposit);
+    showNotification('Versement Validé', `Dépôt de ${deposit.amount} FC enregistré.`, 'success', {
+      onUndo: () => {
+        dbSimulated.deleteDeposit(newDep.id);
+        showNotification('Versement Annulé', `Le versement de ${deposit.amount} FC a été annulé.`, 'warning');
+        refreshData();
+      }
+    });
     refreshData();
+  };
+  
+  const handleDeleteDeposit = (depositId: string) => {
+    if (!currentUser) return;
+    try {
+      dbSimulated.deleteDeposit(depositId);
+      showNotification('Dépôt Supprimé', `Le versement a été annulé avec succès.`, 'warning');
+      refreshData();
+    } catch (err: any) {
+      showNotification('Erreur', err.message || 'Impossible de supprimer ce versement.', 'warning');
+    }
   };
 
   const handleUpdateDailyMise = (carnetId: string, newMise: number) => {
@@ -300,6 +340,17 @@ function App() {
     });
     showNotification('Retrait Initié', `Demande de liquidation de ${amount} FC soumise pour validation.`, 'warning');
     refreshData();
+  };
+
+  const handleCancelWithdrawalRequest = (requestId: string) => {
+    if (!currentUser) return;
+    try {
+      dbSimulated.cancelRequest(requestId);
+      showNotification('Retrait Annulé', 'La demande de retrait a été annulée.', 'info');
+      refreshData();
+    } catch (err: any) {
+      showNotification('Erreur', err.message || 'Impossible d\'annuler la demande.', 'warning');
+    }
   };
 
   const handleReviewRequest = (requestId: string, status: 'approved' | 'rejected', reason?: string) => {
@@ -560,6 +611,9 @@ function App() {
               profiles={profiles}
               onCreateCarnet={handleCreateCarnet} onAddDeposit={handleAddDeposit}
               onUpdateDailyMise={handleUpdateDailyMise} onRequestWithdrawal={handleRequestWithdrawal}
+              onDeleteDeposit={handleDeleteDeposit}
+              requests={requests}
+              onCancelWithdrawalRequest={handleCancelWithdrawalRequest}
               selectedClientFromQuickLink={selectedClientForNewCarnet}
               clearQuickLinkClient={() => setSelectedClientForNewCarnet(null)}
             />
@@ -594,9 +648,26 @@ function App() {
       {activeToast && (
         <div className="toast-container">
           <div className={`notification-toast ${activeToast.type}`}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            {/* Close button at outside top-right */}
+            <button className="toast-close-btn" onClick={closeToast} title="Fermer">
+              <X size={12} />
+            </button>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', width: '100%' }}>
               <span style={{ fontWeight: 800, fontSize: '13px', color: 'var(--text-dark)' }}>{activeToast.title}</span>
               <span style={{ fontSize: '12px', color: 'var(--text-medium)' }}>{activeToast.message}</span>
+              
+              {activeToast.onUndo && (
+                <button
+                  onClick={() => {
+                    activeToast.onUndo?.();
+                    closeToast();
+                  }}
+                  className="btn-toast-undo"
+                >
+                  Annuler
+                </button>
+              )}
             </div>
           </div>
         </div>

@@ -341,11 +341,44 @@ class SimulatedDB {
             throw new Error('Les détails opérationnels du carnet ne peuvent plus être modifiés après 24 heures.');
         }
 
+        // Get all deposits for this carnet to check the new total slots
+        const deposits = this.getStorage<CarnetDeposit>('carnet_deposits', MOCK_DEPOSITS);
+        const carnetDeps = deposits.filter(d => d.carnet_id === carnetId);
+        
+        let newSlotsTotal = 0;
+        carnetDeps.forEach(d => {
+            newSlotsTotal += d.amount / newMise;
+        });
+
+        if (newSlotsTotal > 31) {
+            throw new Error(`La modification est refusée car le montant cumulé de ${(carnet.total_deposited || 0).toLocaleString()} FC équivaudrait à ${newSlotsTotal.toFixed(1)} dépôts, ce qui dépasse la limite maximale de 31 dépôts autorisés.`);
+        }
+
         carnet.daily_mise = newMise;
         carnet.updated_at = new Date().toISOString();
         carnet.updated_by = userId;
 
+        // Auto-Lock or Unlock based on the new slots total
+        if (newSlotsTotal === 31) {
+            carnet.status = 'locked';
+        } else if (carnet.status === 'locked' && newSlotsTotal < 31) {
+            carnet.status = 'active';
+        }
+
         this.setStorage('savings_carnets', carnets);
+
+        // Update slots_count of all deposits belonging to this carnet
+        const updatedDeposits = deposits.map(d => {
+            if (d.carnet_id === carnetId) {
+                return {
+                    ...d,
+                    slots_count: d.amount / newMise,
+                    updated_at: new Date().toISOString()
+                };
+            }
+            return d;
+        });
+        this.setStorage('carnet_deposits', updatedDeposits);
     }
 
     updateCarnetStatus(carnetId: string, status: 'active' | 'rejected' | 'locked' | 'archived', userId: string): void {
@@ -414,6 +447,37 @@ class SimulatedDB {
         return newDeposit;
     }
 
+    // Undo / Cancel Deposit
+    deleteDeposit(depositId: string): void {
+        const deposits = this.getStorage<CarnetDeposit>('carnet_deposits', MOCK_DEPOSITS);
+        const depIdx = deposits.findIndex(d => d.id === depositId);
+        if (depIdx === -1) return;
+
+        const deposit = deposits[depIdx];
+        const carnetId = deposit.carnet_id;
+
+        // Remove the deposit
+        const updatedDeposits = deposits.filter(d => d.id !== depositId);
+        this.setStorage('carnet_deposits', updatedDeposits);
+
+        // If the carnet was locked because of this deposit, change status back to active
+        const carnets = this.getStorage<SavingsCarnet>('savings_carnets', MOCK_CARNETS);
+        const carnetIdx = carnets.findIndex(c => c.id === carnetId);
+        if (carnetIdx !== -1) {
+            const carnet = carnets[carnetIdx];
+            if (carnet.status === 'locked') {
+                const currentSlots = updatedDeposits
+                    .filter(d => d.carnet_id === carnetId)
+                    .reduce((sum, d) => sum + d.slots_count, 0);
+                if (currentSlots < 31) {
+                    carnet.status = 'active';
+                    carnet.updated_at = new Date().toISOString();
+                    this.setStorage('savings_carnets', carnets);
+                }
+            }
+        }
+    }
+
     // 6. Withdrawal Request
     createRequest(request: Omit<WithdrawalRequest, 'id' | 'status' | 'created_at' | 'updated_at'>): WithdrawalRequest {
         const carnets = this.getCarnets();
@@ -421,9 +485,10 @@ class SimulatedDB {
 
         if (!carnet) throw new Error('Carnet introuvable.');
 
-        // Enforce locked status only
-        if (carnet.status !== 'locked') {
-            throw new Error('Une demande de retrait ne peut être soumise que sur un carnet verrouillé.');
+        // Allow if locked, or if active with at least 2 deposits (slots)
+        const totalSlots = carnet.total_slots || 0;
+        if (carnet.status !== 'locked' && !(carnet.status === 'active' && totalSlots >= 2)) {
+            throw new Error('Une demande de retrait ne peut être soumise que sur un carnet verrouillé ou un carnet actif contenant au moins 2 dépôts.');
         }
 
         // Verify expected amount
@@ -490,6 +555,17 @@ class SimulatedDB {
                 this.setStorage('withdrawals', withdrawals);
             }
         }
+    }
+
+    cancelRequest(requestId: string): void {
+        const requests = this.getStorage<WithdrawalRequest>('withdrawal_requests', MOCK_REQUESTS);
+        const req = requests.find(r => r.id === requestId);
+        if (!req) throw new Error('Demande introuvable.');
+        if (req.status !== 'pending') {
+            throw new Error('Seules les demandes de retrait en cours peuvent être annulées.');
+        }
+        const updatedRequests = requests.filter(r => r.id !== requestId);
+        this.setStorage('withdrawal_requests', updatedRequests);
     }
 
     // Calculate Monthly Evaluation Report

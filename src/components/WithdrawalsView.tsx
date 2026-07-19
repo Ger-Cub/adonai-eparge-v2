@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import type { WithdrawalRequest, UserProfile } from '../lib/types';
-import { Check, X, AlertCircle } from 'lucide-react';
+import { Check, X, AlertCircle, Clock, History } from 'lucide-react';
 
 interface WithdrawalsProps {
     requests: WithdrawalRequest[];
@@ -16,8 +16,18 @@ export const WithdrawalsView: React.FC<WithdrawalsProps> = ({
     const [rejectId, setRejectId] = useState<string | null>(null);
     const [reason, setReason] = useState('');
     const [msg, setMsg] = useState('');
+    const [subTab, setSubTab] = useState<'pending' | 'history'>('pending');
 
     const isAdmin = currentUser.role === 'super_admin' || currentUser.role === 'admin_principal';
+
+    // Group and sort requests
+    const pendingRequests = requests
+        .filter(r => r.status === 'pending')
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+    const historyRequests = requests
+        .filter(r => r.status !== 'pending')
+        .sort((a, b) => new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime());
 
     const handleApprove = (id: string) => {
         if (window.confirm('Voulez-vous valider et approuver ce retrait ? Cette action est irréversible, archivera le carnet et distribuera les fonds.')) {
@@ -56,6 +66,8 @@ export const WithdrawalsView: React.FC<WithdrawalsProps> = ({
             case 'rejected': return <span className="badge badge-rejected">Rejeté</span>;
         }
     };
+
+    const currentList = subTab === 'pending' ? pendingRequests : historyRequests;
 
     return (
         <div>
@@ -114,15 +126,112 @@ export const WithdrawalsView: React.FC<WithdrawalsProps> = ({
                 </div>
             )}
 
+            {/* Tab Selection */}
+            <div style={{
+                display: 'flex',
+                gap: '8px',
+                marginBottom: '16px',
+                borderBottom: '1px solid var(--border)',
+                paddingBottom: '2px'
+            }}>
+                <button
+                    type="button"
+                    onClick={() => setSubTab('pending')}
+                    style={{
+                        padding: '10px 16px',
+                        fontWeight: 600,
+                        fontSize: '13px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        backgroundColor: 'transparent',
+                        color: subTab === 'pending' ? 'var(--primary)' : 'var(--text-light)',
+                        border: 'none',
+                        borderBottom: subTab === 'pending' ? '2px solid var(--primary)' : '2px solid transparent',
+                        borderRadius: 0,
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        marginBottom: '-2px'
+                    }}
+                >
+                    <Clock size={16} />
+                    Demandes en attente
+                    <span style={{
+                        fontSize: '11px',
+                        padding: '2px 6px',
+                        borderRadius: '10px',
+                        backgroundColor: subTab === 'pending' ? 'var(--primary-light)' : 'rgba(0, 0, 0, 0.05)',
+                        color: subTab === 'pending' ? 'var(--primary)' : 'var(--text-medium)',
+                        fontWeight: 700
+                    }}>
+                        {pendingRequests.length}
+                    </span>
+                </button>
+                <button
+                    type="button"
+                    onClick={() => setSubTab('history')}
+                    style={{
+                        padding: '10px 16px',
+                        fontWeight: 600,
+                        fontSize: '13px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        backgroundColor: 'transparent',
+                        color: subTab === 'history' ? 'var(--primary)' : 'var(--text-light)',
+                        border: 'none',
+                        borderBottom: subTab === 'history' ? '2px solid var(--primary)' : '2px solid transparent',
+                        borderRadius: 0,
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        marginBottom: '-2px'
+                    }}
+                >
+                    <History size={16} />
+                    Historique de traitement
+                    <span style={{
+                        fontSize: '11px',
+                        padding: '2px 6px',
+                        borderRadius: '10px',
+                        backgroundColor: subTab === 'history' ? 'var(--primary-light)' : 'rgba(0, 0, 0, 0.05)',
+                        color: subTab === 'history' ? 'var(--primary)' : 'var(--text-medium)',
+                        fontWeight: 700
+                    }}>
+                        {historyRequests.length}
+                    </span>
+                </button>
+            </div>
+
             {/* Main requests table */}
             <div className="panel">
                 <div className="panel-header">
-                    <h3 className="panel-title">Toutes les demandes</h3>
+                    <h3 className="panel-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {subTab === 'pending' ? <Clock size={18} /> : <History size={18} />}
+                        {subTab === 'pending' ? 'Demandes en attente de validation' : 'Historique de toutes les décisions'}
+                    </h3>
                 </div>
                 <div className="panel-body" style={{ padding: 0 }}>
-                    {requests.length === 0 ? (
-                        <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-light)' }}>
-                            Aucune demande de retrait enregistrée.
+                    {currentList.length === 0 ? (
+                        <div style={{ padding: '48px 24px', textAlign: 'center', color: 'var(--text-light)' }}>
+                            {subTab === 'pending' ? (
+                                <>
+                                    <div style={{ marginBottom: '8px', fontSize: '15px', fontWeight: 500, color: 'var(--text-medium)' }}>
+                                        Aucune demande de retrait en attente 🎉
+                                    </div>
+                                    <p style={{ margin: 0, fontSize: '13px' }}>
+                                        Toutes les demandes ont été traitées ou aucune demande n'a encore été initiée.
+                                    </p>
+                                </>
+                            ) : (
+                                <>
+                                    <div style={{ marginBottom: '8px', fontSize: '15px', fontWeight: 500, color: 'var(--text-medium)' }}>
+                                        Historique vide
+                                    </div>
+                                    <p style={{ margin: 0, fontSize: '13px' }}>
+                                        Aucune demande de retrait n'a été validée ou rejetée pour le moment.
+                                    </p>
+                                </>
+                            )}
                         </div>
                     ) : (
                         <div style={{ overflowX: 'auto' }}>
@@ -140,7 +249,7 @@ export const WithdrawalsView: React.FC<WithdrawalsProps> = ({
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {requests.map(r => {
+                                    {currentList.map(r => {
                                         const isPending = r.status === 'pending';
                                         const amountNet = r.requested_amount; // already has first deposit deducted
                                         const gross = amountNet + (r.daily_mise || 0);
@@ -194,7 +303,9 @@ export const WithdrawalsView: React.FC<WithdrawalsProps> = ({
                                                                 </button>
                                                             </div>
                                                         ) : (
-                                                            <span style={{ fontSize: '12px', color: 'var(--text-light)', fontStyle: 'italic' }}>Validé</span>
+                                                            <span style={{ fontSize: '12px', color: 'var(--text-light)', fontStyle: 'italic' }}>
+                                                                {r.status === 'approved' ? 'Validé' : 'Refusé'}
+                                                            </span>
                                                         )}
                                                     </td>
                                                 )}

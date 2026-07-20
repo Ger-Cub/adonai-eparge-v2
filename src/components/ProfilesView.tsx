@@ -5,18 +5,25 @@ import { UserPlus, Trash } from 'lucide-react';
 interface ProfilesViewProps {
     profiles: UserProfile[];
     currentUser: UserProfile;
-    onCreateProfile: (profile: Omit<UserProfile, 'id' | 'created_at' | 'updated_at'>, supervisorOrAdminIdName?: string) => void;
+    onCreateProfile: (
+        profile: Omit<UserProfile, 'id' | 'created_at' | 'updated_at'> & { email?: string; password?: string },
+        supervisorOrAdminId?: string
+    ) => void;
     onDeleteProfile: (id: string) => void;
+    isSupabaseConfigured: boolean;
 }
 
 export const ProfilesView: React.FC<ProfilesViewProps> = ({
     profiles,
     currentUser,
     onCreateProfile,
-    onDeleteProfile
+    onDeleteProfile,
+    isSupabaseConfigured
 }) => {
     const [fullName, setFullName] = useState('');
     const [phone, setPhone] = useState('');
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
     const [targetRole, setTargetRole] = useState<UserRole>('agent');
     const [msg, setMsg] = useState({ text: '', type: '' });
 
@@ -58,6 +65,11 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({
             return;
         }
 
+        if (isSupabaseConfigured && (!email || !password)) {
+            setMsg({ text: 'L\'email et le mot de passe sont obligatoires pour la base de production.', type: 'error' });
+            return;
+        }
+
         try {
             const associatedParentId =
                 currentUser.role === 'super_admin' ? currentUser.id // Admin principal created by Superadmin
@@ -69,11 +81,15 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({
                 role: targetRole,
                 full_name: fullName,
                 phone: phone,
-                created_by: currentUser.id
+                created_by: currentUser.id,
+                email: isSupabaseConfigured ? email : undefined,
+                password: isSupabaseConfigured ? password : undefined
             }, associatedParentId);
 
             setFullName('');
             setPhone('');
+            setEmail('');
+            setPassword('');
             setMsg({ text: 'Compte utilisateur créé avec succès.', type: 'success' });
             setTimeout(() => setMsg({ text: '', type: '' }), 4000);
         } catch (err: any) {
@@ -183,6 +199,31 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({
                                     </select>
                                 </div>
                             </div>
+
+                            {isSupabaseConfigured && (
+                                <div className="form-row" style={{ marginTop: '16px' }}>
+                                    <div className="form-group">
+                                        <label className="form-label">Adresse Email</label>
+                                        <input
+                                            type="email"
+                                            className="form-control"
+                                            placeholder="Ex: agent@adonai.com"
+                                            value={email}
+                                            onChange={e => setEmail(e.target.value)}
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Mot de passe</label>
+                                        <input
+                                            type="password"
+                                            className="form-control"
+                                            placeholder="Min. 6 caractères"
+                                            value={password}
+                                            onChange={e => setPassword(e.target.value)}
+                                        />
+                                    </div>
+                                </div>
+                            )}
 
                             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
                                 <button type="submit" className="btn btn-primary">

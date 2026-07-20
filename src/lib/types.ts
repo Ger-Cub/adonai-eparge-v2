@@ -102,7 +102,7 @@ export interface Withdrawal {
 
 export interface LedgerEntry {
     id: string;
-    carnet_id: string;
+    carnet_id?: string;
     agent_id?: string;
     type: LedgerEntryType;
     amount: number;

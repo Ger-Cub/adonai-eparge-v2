@@ -61,7 +61,7 @@ class SimulatedDB {
     }
 
     // --- Auth Session ---
-    getCurrentUser(): UserProfile {
+    async getCurrentUser(): Promise<UserProfile> {
         const session = localStorage.getItem('adonai_session');
         if (!session) {
             // Default to Super Admin for demo purposes if no user is signed in
@@ -72,7 +72,7 @@ class SimulatedDB {
         return JSON.parse(session);
     }
 
-    setCurrentUser(profile: UserProfile | null) {
+    async setCurrentUser(profile: UserProfile | null): Promise<void> {
         if (profile === null) {
             localStorage.removeItem('adonai_session');
         } else {
@@ -81,19 +81,19 @@ class SimulatedDB {
     }
 
     // --- Core Lists ---
-    getProfiles(): UserProfile[] {
+    async getProfiles(): Promise<UserProfile[]> {
         return this.getStorage<UserProfile>('user_profiles', MOCK_PROFILES);
     }
 
-    getClients(): Client[] {
+    async getClients(): Promise<Client[]> {
         return this.getStorage<Client>('clients', MOCK_CLIENTS);
     }
 
-    getCarnets(): SavingsCarnet[] {
+    async getCarnets(): Promise<SavingsCarnet[]> {
         const carnets = this.getStorage<SavingsCarnet>('savings_carnets', MOCK_CARNETS);
-        const deposits = this.getDeposits();
-        const clients = this.getClients();
-        const profiles = this.getProfiles();
+        const deposits = await this.getDeposits();
+        const clients = await this.getClients();
+        const profiles = await this.getProfiles();
 
         // Map Join Data
         return carnets.map(car => {
@@ -117,10 +117,10 @@ class SimulatedDB {
         });
     }
 
-    getDeposits(): CarnetDeposit[] {
+    async getDeposits(): Promise<CarnetDeposit[]> {
         const deposits = this.getStorage<CarnetDeposit>('carnet_deposits', MOCK_DEPOSITS);
         const carnets = this.getStorage<SavingsCarnet>('savings_carnets', MOCK_CARNETS);
-        const clients = this.getClients();
+        const clients = await this.getClients();
 
         return deposits.map(dep => {
             const carnet = carnets.find(c => c.id === dep.carnet_id);
@@ -134,10 +134,10 @@ class SimulatedDB {
         });
     }
 
-    getRequests(): WithdrawalRequest[] {
+    async getRequests(): Promise<WithdrawalRequest[]> {
         const requests = this.getStorage<WithdrawalRequest>('withdrawal_requests', MOCK_REQUESTS);
-        const carnets = this.getCarnets();
-        const profiles = this.getProfiles();
+        const carnets = await this.getCarnets();
+        const profiles = await this.getProfiles();
 
         return requests.map(req => {
             const carnet = carnets.find(c => c.id === req.carnet_id);
@@ -153,10 +153,10 @@ class SimulatedDB {
         });
     }
 
-    getLedger(): LedgerEntry[] {
+    async getLedger(): Promise<LedgerEntry[]> {
         const ledger = this.getStorage<LedgerEntry>('ledger', MOCK_LEDGER);
         const carnets = this.getStorage<SavingsCarnet>('savings_carnets', MOCK_CARNETS);
-        const profiles = this.getProfiles();
+        const profiles = await this.getProfiles();
 
         return ledger.map(led => {
             const carnet = carnets.find(c => c.id === led.carnet_id);
@@ -170,11 +170,12 @@ class SimulatedDB {
         });
     }
 
-    // --- Transactions / Triggers Enforced in JS ---
-
     // 1. Create a User Profile (hierarchy limits checked in UI)
-    createProfile(profile: Omit<UserProfile, 'id' | 'created_at' | 'updated_at'>, supervisorOrAdminId?: string): UserProfile {
-        const profiles = this.getProfiles();
+    async createProfile(
+        profile: Omit<UserProfile, 'id' | 'created_at' | 'updated_at'> & { email?: string; password?: string },
+        supervisorOrAdminId?: string
+    ): Promise<UserProfile> {
+        const profiles = await this.getProfiles();
         const newId = `usr-${profile.role}-${Math.floor(1000 + Math.random() * 9000)}`;
 
         const newProfile: UserProfile = {
@@ -201,14 +202,14 @@ class SimulatedDB {
         return newProfile;
     }
 
-    deleteProfile(id: string): void {
-        const profiles = this.getProfiles().filter(p => p.id !== id);
+    async deleteProfile(id: string): Promise<void> {
+        const profiles = (await this.getProfiles()).filter(p => p.id !== id);
         this.setStorage('user_profiles', profiles);
     }
 
     // 2. Create Client
-    createClient(client: Omit<Client, 'id' | 'created_at' | 'updated_at'>): Client {
-        const clients = this.getClients();
+    async createClient(client: Omit<Client, 'id' | 'created_at' | 'updated_at'>): Promise<Client> {
+        const clients = await this.getClients();
         const newClient: Client = {
             ...client,
             id: `cli-${Math.floor(1000 + Math.random() * 9000)}`,
@@ -222,7 +223,10 @@ class SimulatedDB {
     }
 
     // 3. Create Savings Carnet (First Deposit compulsory)
-    createCarnet(carnet: Omit<SavingsCarnet, 'id' | 'carnet_number' | 'supervisor_id' | 'status' | 'created_at' | 'updated_at'>, firstDepositAmount: number): SavingsCarnet {
+    async createCarnet(
+        carnet: Omit<SavingsCarnet, 'id' | 'carnet_number' | 'supervisor_id' | 'status' | 'created_at' | 'updated_at'>,
+        firstDepositAmount: number
+    ): Promise<SavingsCarnet> {
         const carnets = this.getStorage<SavingsCarnet>('savings_carnets', MOCK_CARNETS);
         const agents = this.getStorage<any>('terrain_agents', MOCK_TERRAIN_AGENTS);
 
@@ -302,8 +306,7 @@ class SimulatedDB {
         // Save Organisation Gain immediately
         ledger.push({
             id: `led-${Math.floor(10000 + Math.random() * 90000)}`,
-            carnet_id: newId,
-            agent_id: undefined,
+            carnet_id: undefined,
             type: 'org_gain',
             amount: orgPart,
             description: `Commission organisation (50%) - Carnet ${carnetNumber}`,
@@ -317,7 +320,6 @@ class SimulatedDB {
             newCarnet.status = 'locked';
             this.setStorage('savings_carnets', carnets);
         } else {
-            // Auto-validate for demo
             newCarnet.status = 'active';
             this.setStorage('savings_carnets', carnets);
         }
@@ -326,7 +328,7 @@ class SimulatedDB {
     }
 
     // 4. Update Savings Carnet (Restricted status or 24-hr check)
-    updateCarnetDailyMise(carnetId: string, newMise: number, userId: string): void {
+    async updateCarnetDailyMise(carnetId: string, newMise: number, userId: string): Promise<void> {
         const carnets = this.getStorage<SavingsCarnet>('savings_carnets', MOCK_CARNETS);
         const idx = carnets.findIndex(c => c.id === carnetId);
 
@@ -381,7 +383,7 @@ class SimulatedDB {
         this.setStorage('carnet_deposits', updatedDeposits);
     }
 
-    updateCarnetStatus(carnetId: string, status: 'active' | 'rejected' | 'locked' | 'archived', userId: string): void {
+    async updateCarnetStatus(carnetId: string, status: 'active' | 'rejected' | 'locked' | 'archived', userId: string): Promise<void> {
         const carnets = this.getStorage<SavingsCarnet>('savings_carnets', MOCK_CARNETS);
         const idx = carnets.findIndex(c => c.id === carnetId);
 
@@ -395,7 +397,7 @@ class SimulatedDB {
     }
 
     // 5. Add Deposit
-    addDeposit(deposit: Omit<CarnetDeposit, 'id' | 'slots_count' | 'created_at' | 'updated_at'>): CarnetDeposit {
+    async addDeposit(deposit: Omit<CarnetDeposit, 'id' | 'slots_count' | 'created_at' | 'updated_at'>): Promise<CarnetDeposit> {
         const carnets = this.getStorage<SavingsCarnet>('savings_carnets', MOCK_CARNETS);
         const carnetIdx = carnets.findIndex(c => c.id === deposit.carnet_id);
 
@@ -448,7 +450,7 @@ class SimulatedDB {
     }
 
     // Undo / Cancel Deposit
-    deleteDeposit(depositId: string): void {
+    async deleteDeposit(depositId: string): Promise<void> {
         const deposits = this.getStorage<CarnetDeposit>('carnet_deposits', MOCK_DEPOSITS);
         const depIdx = deposits.findIndex(d => d.id === depositId);
         if (depIdx === -1) return;
@@ -479,8 +481,8 @@ class SimulatedDB {
     }
 
     // 6. Withdrawal Request
-    createRequest(request: Omit<WithdrawalRequest, 'id' | 'status' | 'created_at' | 'updated_at'>): WithdrawalRequest {
-        const carnets = this.getCarnets();
+    async createRequest(request: Omit<WithdrawalRequest, 'id' | 'status' | 'created_at' | 'updated_at'>): Promise<WithdrawalRequest> {
+        const carnets = await this.getCarnets();
         const carnet = carnets.find(c => c.id === request.carnet_id);
 
         if (!carnet) throw new Error('Carnet introuvable.');
@@ -492,10 +494,9 @@ class SimulatedDB {
         }
 
         // Verify expected amount
-        // Montant retirable = Total des Dépôts - Premier Dépôt (which corresponds to daily_mise * 30 slots)
         const expected = (carnet.total_deposited || 0) - carnet.daily_mise;
         if (request.requested_amount !== expected) {
-            throw new Error(`Le montant demandé est incorrect. Le montant retirable après déduction du premier dépôt est de ${expected} FC.`);
+            throw new Error(`Le montant demandé est incorrect. Le montant disponible après déduction du premier dépôt est de ${expected} FC.`);
         }
 
         const requests = this.getStorage<WithdrawalRequest>('withdrawal_requests', MOCK_REQUESTS);
@@ -513,7 +514,7 @@ class SimulatedDB {
     }
 
     // 7. Approve / Reject Request
-    reviewRequest(requestId: string, status: 'approved' | 'rejected', validatorId: string, reason?: string): void {
+    async reviewRequest(requestId: string, status: 'approved' | 'rejected', validatorId: string, reason?: string): Promise<void> {
         const requests = this.getStorage<WithdrawalRequest>('withdrawal_requests', MOCK_REQUESTS);
         const reqIdx = requests.findIndex(r => r.id === requestId);
 
@@ -557,7 +558,7 @@ class SimulatedDB {
         }
     }
 
-    cancelRequest(requestId: string): void {
+    async cancelRequest(requestId: string): Promise<void> {
         const requests = this.getStorage<WithdrawalRequest>('withdrawal_requests', MOCK_REQUESTS);
         const req = requests.find(r => r.id === requestId);
         if (!req) throw new Error('Demande introuvable.');
@@ -569,8 +570,8 @@ class SimulatedDB {
     }
 
     // Calculate Monthly Evaluation Report
-    getMonthlySnapshots(): OrgRevenueSnapshot[] {
-        const ledger = this.getLedger();
+    async getMonthlySnapshots(): Promise<OrgRevenueSnapshot[]> {
+        const ledger = await this.getLedger();
         const data: { [key: string]: { sales: number; commission: number } } = {};
 
         ledger.forEach(entry => {
@@ -600,9 +601,9 @@ class SimulatedDB {
         });
     }
 
-    getAgentMonthlyRewards(): AgentMonthlyReward[] {
-        const ledger = this.getLedger();
-        const profiles = this.getProfiles();
+    async getAgentMonthlyRewards(): Promise<AgentMonthlyReward[]> {
+        const ledger = await this.getLedger();
+        const profiles = await this.getProfiles();
         const data: { [key: string]: { sales: number; commission: number } } = {};
 
         ledger.forEach(entry => {
@@ -637,4 +638,418 @@ class SimulatedDB {
     }
 }
 
-export const dbSimulated = new SimulatedDB();
+// --- Production Supabase Database Driver ---
+class SupabaseDB {
+    // --- Auth Session ---
+    async getCurrentUser(): Promise<UserProfile | null> {
+        if (!supabase) return null;
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return null;
+
+        const { data: profile, error } = await supabase
+            .from('user_profiles')
+            .select('*')
+            .eq('id', user.id)
+            .single();
+
+        if (error || !profile) return null;
+        return profile;
+    }
+
+    async setCurrentUser(_profile: UserProfile | null): Promise<void> {
+        // Managed by Supabase auth cookies/localStorage, handled in App.tsx
+    }
+
+    // --- Core Lists ---
+    async getProfiles(): Promise<UserProfile[]> {
+        if (!supabase) return [];
+        const { data, error } = await supabase.from('user_profiles').select('*');
+        if (error) throw error;
+        return data || [];
+    }
+
+    async getClients(): Promise<Client[]> {
+        if (!supabase) return [];
+        const { data, error } = await supabase.from('clients').select('*').order('created_at', { ascending: false });
+        if (error) throw error;
+        return data || [];
+    }
+
+    async getCarnets(): Promise<SavingsCarnet[]> {
+        if (!supabase) return [];
+        const { data: carnets, error } = await supabase.from('savings_carnets').select('*').order('created_at', { ascending: false });
+        if (error) throw error;
+
+        const deposits = await this.getDeposits();
+        const clients = await this.getClients();
+        const profiles = await this.getProfiles();
+
+        return (carnets || []).map(car => {
+            const client = clients.find(c => c.id === car.client_id);
+            const agent = profiles.find(p => p.id === car.agent_id);
+            const supervisor = profiles.find(p => p.id === car.supervisor_id);
+            const carnetDeps = deposits.filter(d => d.carnet_id === car.id);
+
+            const total_slots = carnetDeps.reduce((sum, d) => sum + d.slots_count, 0);
+            const total_deposited = carnetDeps.reduce((sum, d) => sum + d.amount, 0);
+
+            return {
+                ...car,
+                client_name: client ? client.name : 'Inconnu',
+                client_phone: client ? client.phone : 'Inconnu',
+                agent_name: agent ? agent.full_name : 'Inconnu',
+                supervisor_name: supervisor ? supervisor.full_name : 'Inconnu',
+                total_slots,
+                total_deposited
+            };
+        });
+    }
+
+    async getDeposits(): Promise<CarnetDeposit[]> {
+        if (!supabase) return [];
+        const { data: deposits, error } = await supabase.from('carnet_deposits').select('*').order('created_at', { ascending: false });
+        if (error) throw error;
+
+        const { data: carnets } = await supabase.from('savings_carnets').select('id, carnet_number, client_id');
+        const clients = await this.getClients();
+
+        return (deposits || []).map(dep => {
+            const carnet = (carnets || []).find(c => c.id === dep.carnet_id);
+            const client = carnet ? clients.find(c => c.id === carnet.client_id) : null;
+
+            return {
+                ...dep,
+                carnet_number: carnet ? carnet.carnet_number : 'Inconnu',
+                client_name: client ? client.name : 'Inconnu'
+            };
+        });
+    }
+
+    async getRequests(): Promise<WithdrawalRequest[]> {
+        if (!supabase) return [];
+        const { data: requests, error } = await supabase.from('withdrawal_requests').select('*').order('created_at', { ascending: false });
+        if (error) throw error;
+
+        const carnets = await this.getCarnets();
+        const profiles = await this.getProfiles();
+
+        return (requests || []).map(req => {
+            const carnet = carnets.find(c => c.id === req.carnet_id);
+            const agent = carnet ? profiles.find(p => p.id === carnet.agent_id) : null;
+
+            return {
+                ...req,
+                carnet_number: carnet ? carnet.carnet_number : 'Inconnu',
+                client_name: carnet ? carnet.client_name : 'Inconnu',
+                daily_mise: carnet ? carnet.daily_mise : 0,
+                agent_name: agent ? agent.full_name : 'Inconnu'
+            };
+        });
+    }
+
+    async getLedger(): Promise<LedgerEntry[]> {
+        if (!supabase) return [];
+        const { data: ledger, error } = await supabase.from('ledger').select('*').order('created_at', { ascending: false });
+        if (error) throw error;
+
+        const { data: carnets } = await supabase.from('savings_carnets').select('id, carnet_number');
+        const profiles = await this.getProfiles();
+
+        return (ledger || []).map(led => {
+            const carnet = (carnets || []).find(c => c.id === led.carnet_id);
+            const agent = led.agent_id ? profiles.find(p => p.id === led.agent_id) : null;
+
+            return {
+                ...led,
+                carnet_number: carnet ? carnet.carnet_number : 'Inconnu',
+                agent_name: agent ? agent.full_name : undefined
+            };
+        });
+    }
+
+    // 1. Create a User Profile using temporary client to prevent session takeover
+    async createProfile(
+        profile: Omit<UserProfile, 'id' | 'created_at' | 'updated_at'> & { email?: string; password?: string },
+        supervisorOrAdminId?: string
+    ): Promise<UserProfile> {
+        if (!supabase) throw new Error("Supabase n'est pas configuré.");
+        if (!profile.email || !profile.password) {
+            throw new Error("L'email et le mot de passe sont requis pour créer un utilisateur de production.");
+        }
+
+        // Secondary client to perform auth signup without replacing the current active user session
+        const tempClient = createClient(supabaseUrl, supabaseAnonKey, {
+            auth: {
+                persistSession: false,
+                autoRefreshToken: false,
+                detectSessionInUrl: false
+            }
+        });
+
+        // Sign up subordinate user via metadata
+        const { data: authData, error: authErr } = await tempClient.auth.signUp({
+            email: profile.email,
+            password: profile.password,
+            options: {
+                data: {
+                    full_name: profile.full_name,
+                    phone: profile.phone,
+                    role: profile.role
+                }
+            }
+        });
+
+        if (authErr || !authData.user) {
+            throw new Error(authErr?.message || "Erreur lors de la création du compte auth.");
+        }
+
+        const newUserId = authData.user.id;
+
+        // Wait brief delay for database trigger handle_new_user to complete profile insertion
+        await new Promise(resolve => setTimeout(resolve, 600));
+
+        // Insert hierarchy mapping depending on role using main client
+        if (profile.role === 'supervisor' && supervisorOrAdminId) {
+            const { error } = await supabase
+                .from('supervisors')
+                .insert({
+                    id: newUserId,
+                    admin_id: supervisorOrAdminId,
+                    created_by: profile.created_by,
+                    updated_by: profile.created_by
+                });
+            if (error) throw error;
+        } else if (profile.role === 'agent' && supervisorOrAdminId) {
+            const { error } = await supabase
+                .from('terrain_agents')
+                .insert({
+                    id: newUserId,
+                    supervisor_id: supervisorOrAdminId,
+                    created_by: profile.created_by,
+                    updated_by: profile.created_by
+                });
+            if (error) throw error;
+        }
+
+        // Retrieve newly created profile record
+        const { data: newProfile, error: getErr } = await supabase
+            .from('user_profiles')
+            .select('*')
+            .eq('id', newUserId)
+            .single();
+
+        if (getErr || !newProfile) {
+            throw new Error(getErr?.message || "Erreur de récupération du profil créé.");
+        }
+
+        return newProfile;
+    }
+
+    async deleteProfile(id: string): Promise<void> {
+        if (!supabase) return;
+        const { error } = await supabase.from('user_profiles').delete().eq('id', id);
+        if (error) throw error;
+    }
+
+    // 2. Create Client
+    async createClient(client: Omit<Client, 'id' | 'created_at' | 'updated_at'>): Promise<Client> {
+        if (!supabase) throw new Error("Supabase n'est pas configuré.");
+        const { data, error } = await supabase
+            .from('clients')
+            .insert({
+                name: client.name,
+                phone: client.phone,
+                address: client.address,
+                photo: client.photo,
+                created_by: client.created_by,
+                updated_by: client.created_by
+            })
+            .select()
+            .single();
+        
+        if (error) throw error;
+        return data;
+    }
+
+    // 3. Create Savings Carnet (First Deposit compulsory) via RPC transaction helper
+    async createCarnet(
+        carnet: Omit<SavingsCarnet, 'id' | 'carnet_number' | 'supervisor_id' | 'status' | 'created_at' | 'updated_at'>,
+        firstDepositAmount: number
+    ): Promise<SavingsCarnet> {
+        if (!supabase) throw new Error("Supabase n'est pas configuré.");
+
+        const { data, error } = await supabase.rpc('create_carnet_with_deposit', {
+            p_client_id: carnet.client_id,
+            p_daily_mise: carnet.daily_mise,
+            p_agent_id: carnet.agent_id,
+            p_first_deposit_amount: firstDepositAmount,
+            p_created_by: carnet.created_by
+        });
+
+        if (error) throw error;
+        return data;
+    }
+
+    // 4. Update Savings Carnet (Restricted status or 24-hr check)
+    async updateCarnetDailyMise(carnetId: string, newMise: number, userId: string): Promise<void> {
+        if (!supabase) return;
+        const { error } = await supabase
+            .from('savings_carnets')
+            .update({
+                daily_mise: newMise,
+                updated_by: userId,
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', carnetId);
+
+        if (error) throw error;
+    }
+
+    async updateCarnetStatus(carnetId: string, status: 'active' | 'rejected' | 'locked' | 'archived', userId: string): Promise<void> {
+        if (!supabase) return;
+        const { error } = await supabase
+            .from('savings_carnets')
+            .update({
+                status,
+                updated_by: userId,
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', carnetId);
+
+        if (error) throw error;
+    }
+
+    // 5. Add Deposit
+    async addDeposit(deposit: Omit<CarnetDeposit, 'id' | 'slots_count' | 'created_at' | 'updated_at'>): Promise<CarnetDeposit> {
+        if (!supabase) throw new Error("Supabase n'est pas configuré.");
+        const { data, error } = await supabase
+            .from('carnet_deposits')
+            .insert({
+                carnet_id: deposit.carnet_id,
+                amount: deposit.amount,
+                created_by: deposit.created_by,
+                updated_by: deposit.created_by
+            })
+            .select()
+            .single();
+
+        if (error) throw error;
+        return data;
+    }
+
+    // Undo / Cancel Deposit
+    async deleteDeposit(depositId: string): Promise<void> {
+        if (!supabase) return;
+        
+        // Fetch deposit to know carnet association
+        const { data: dep, error: getErr } = await supabase
+            .from('carnet_deposits')
+            .select('carnet_id')
+            .eq('id', depositId)
+            .single();
+        if (getErr || !dep) return;
+
+        const carnetId = dep.carnet_id;
+
+        // Delete deposit
+        const { error: delErr } = await supabase
+            .from('carnet_deposits')
+            .delete()
+            .eq('id', depositId);
+        if (delErr) throw delErr;
+
+        // If carnet capacity is no longer full, set back to active if it was locked
+        const { data: deposits } = await supabase
+            .from('carnet_deposits')
+            .select('slots_count')
+            .eq('carnet_id', carnetId);
+
+        const totalSlots = (deposits || []).reduce((sum, d) => sum + d.slots_count, 0);
+
+        if (totalSlots < 31) {
+            const { data: carnet } = await supabase
+                .from('savings_carnets')
+                .select('status')
+                .eq('id', carnetId)
+                .single();
+            if (carnet && carnet.status === 'locked') {
+                await supabase
+                    .from('savings_carnets')
+                    .update({ status: 'active' })
+                    .eq('id', carnetId);
+            }
+        }
+    }
+
+    // 6. Withdrawal Request
+    async createRequest(request: Omit<WithdrawalRequest, 'id' | 'status' | 'created_at' | 'updated_at'>): Promise<WithdrawalRequest> {
+        if (!supabase) throw new Error("Supabase n'est pas configuré.");
+        const { data, error } = await supabase
+            .from('withdrawal_requests')
+            .insert({
+                carnet_id: request.carnet_id,
+                requested_amount: request.requested_amount,
+                created_by: request.created_by,
+                updated_by: request.created_by
+            })
+            .select()
+            .single();
+
+        if (error) throw error;
+        return data;
+    }
+
+    // 7. Approve / Reject Request
+    async reviewRequest(requestId: string, status: 'approved' | 'rejected', validatorId: string, reason?: string): Promise<void> {
+        if (!supabase) return;
+        const { error } = await supabase
+            .from('withdrawal_requests')
+            .update({
+                status,
+                rejection_reason: reason,
+                updated_by: validatorId,
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', requestId);
+
+        if (error) throw error;
+    }
+
+    async cancelRequest(requestId: string): Promise<void> {
+        if (!supabase) return;
+        const { error } = await supabase
+            .from('withdrawal_requests')
+            .delete()
+            .eq('id', requestId);
+
+        if (error) throw error;
+    }
+
+    // Reports calculated server-side or dynamically
+    async getMonthlySnapshots(): Promise<OrgRevenueSnapshot[]> {
+        if (!supabase) return [];
+        const { data, error } = await supabase.from('org_revenue_snapshots').select('*').order('year', { ascending: false }).order('month', { ascending: false });
+        if (error) throw error;
+        return data || [];
+    }
+
+    async getAgentMonthlyRewards(): Promise<AgentMonthlyReward[]> {
+        if (!supabase) return [];
+        const { data: rewards, error } = await supabase.from('agent_monthly_rewards').select('*').order('year', { ascending: false }).order('month', { ascending: false });
+        if (error) throw error;
+
+        const profiles = await this.getProfiles();
+
+        return (rewards || []).map(rew => {
+            const agent = profiles.find(p => p.id === rew.agent_id);
+            return {
+                ...rew,
+                agent_name: agent ? agent.full_name : 'Agent de terrain'
+            };
+        });
+    }
+}
+
+export const dbSimulated = isSupabaseConfigured
+    ? new SupabaseDB()
+    : new SimulatedDB();

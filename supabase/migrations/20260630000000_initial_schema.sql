@@ -151,14 +151,29 @@ CREATE TABLE org_revenue_snapshots (
 -- 2. Helper Functions (Security, Roles & Context)
 -- -------------------------------------------------------------
 
--- Helper: Get current user role from profiles
+-- Helper: Get current user role from profiles (JWT preferred to avoid RLS recursion)
 CREATE OR REPLACE FUNCTION get_current_user_role()
 RETURNS user_role AS $$
 DECLARE
-    v_role user_role;
+    v_role_text TEXT;
 BEGIN
-    SELECT role INTO v_role FROM user_profiles WHERE id = auth.uid();
-    RETURN v_role;
+    -- 1. Try to read from current JWT user metadata (fast, prevents RLS infinite recursion)
+    v_role_text := auth.jwt() -> 'user_metadata' ->> 'role';
+    
+    IF v_role_text IS NOT NULL THEN
+        RETURN v_role_text::user_role;
+    END IF;
+
+    -- 2. Fallback to table query if JWT metadata is missing (e.g. background job/cron)
+    SELECT role INTO v_role_text FROM public.user_profiles WHERE id = auth.uid();
+    
+    IF v_role_text IS NOT NULL THEN
+        RETURN v_role_text::user_role;
+    END IF;
+
+    RETURN 'agent'::user_role;
+EXCEPTION WHEN OTHERS THEN
+    RETURN 'agent'::user_role;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 

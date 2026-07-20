@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   dbSimulated,
-  isSupabaseConfigured
+  isSupabaseConfigured,
+  supabase
 } from './lib/supabase';
 import type {
   UserProfile, Client, SavingsCarnet,
@@ -11,6 +12,7 @@ import type {
 import { DashboardOverview } from './components/DashboardOverview';
 import { ProfilesView } from './components/ProfilesView';
 import { ClientsView } from './components/ClientsView';
+import { AuthScreen } from './components/AuthScreen';
 import { CarnetsView } from './components/CarnetsView';
 import { WithdrawalsView } from './components/WithdrawalsView';
 import { LedgerView } from './components/LedgerView';
@@ -21,7 +23,7 @@ import logoAdonai from './assets/logo-adonai.jpg';
 import {
   LayoutDashboard, Users, FolderHeart,
   ArrowUpDown, BookOpen, LogOut,
-  Database, Shield, Sparkles, Moon, Sun, X, TrendingUp, Bell
+  Moon, Sun, X, TrendingUp, Bell, Database
 } from 'lucide-react';
 
 function App() {
@@ -179,60 +181,172 @@ function App() {
   };
 
   // Load Database Values
-  const refreshData = () => {
-    const loadedProfiles = dbSimulated.getProfiles();
-    const loadedClients = dbSimulated.getClients();
-    const loadedCarnets = dbSimulated.getCarnets();
-    const loadedDeposits = dbSimulated.getDeposits();
-    const loadedRequests = dbSimulated.getRequests();
-    const loadedLedger = dbSimulated.getLedger();
-    const loadedRewards = dbSimulated.getAgentMonthlyRewards();
-    const loadedSnapshots = dbSimulated.getMonthlySnapshots();
+  // Load Database Values
+  const refreshData = async (userOverride?: UserProfile | null) => {
+    try {
+      const user = userOverride || currentUser;
+      if (!user) return;
 
-    // RLS Enforcement Simulation
-    const user = dbSimulated.getCurrentUser();
-    setCurrentUser(user);
+      const [
+        loadedProfiles,
+        loadedClients,
+        loadedCarnets,
+        loadedDeposits,
+        loadedRequests,
+        loadedLedger,
+        loadedRewards,
+        loadedSnapshots
+      ] = await Promise.all([
+        dbSimulated.getProfiles(),
+        dbSimulated.getClients(),
+        dbSimulated.getCarnets(),
+        dbSimulated.getDeposits(),
+        dbSimulated.getRequests(),
+        dbSimulated.getLedger(),
+        dbSimulated.getAgentMonthlyRewards(),
+        dbSimulated.getMonthlySnapshots()
+      ]);
 
-    if (user.role === 'super_admin' || user.role === 'admin_principal') {
-      setProfiles(loadedProfiles);
-      setClients(loadedClients);
-      setCarnets(loadedCarnets);
-      setRequests(loadedRequests);
-      setLedger(loadedLedger);
-    } else if (user.role === 'supervisor') {
-      const subAgents = loadedProfiles
-        .filter(p => p.role === 'agent' && p.created_by === user.id)
-        .map(p => p.id);
+      // RLS Enforcement Simulation / Display Filtering
+      if (user.role === 'super_admin' || user.role === 'admin_principal') {
+        setProfiles(loadedProfiles);
+        setClients(loadedClients);
+        setCarnets(loadedCarnets);
+        setRequests(loadedRequests);
+        setLedger(loadedLedger);
+      } else if (user.role === 'supervisor') {
+        const subAgents = loadedProfiles
+          .filter(p => p.role === 'agent' && p.created_by === user.id)
+          .map(p => p.id);
 
-      const agentIds = [user.id, ...subAgents];
+        const agentIds = [user.id, ...subAgents];
 
-      setProfiles(loadedProfiles.filter(p => p.id === user.id || p.created_by === user.id || p.role === 'agent'));
-      setClients(loadedClients.filter(c => agentIds.includes(c.created_by)));
-      setCarnets(loadedCarnets.filter(c => c.supervisor_id === user.id || agentIds.includes(c.agent_id)));
-      setRequests(loadedRequests.filter(r => {
-        const car = loadedCarnets.find(c => c.id === r.carnet_id);
-        return car && (car.supervisor_id === user.id || agentIds.includes(car.agent_id));
-      }));
-      setLedger(loadedLedger.filter(l => l.type !== 'org_gain'));
-    } else if (user.role === 'agent') {
-      setProfiles(loadedProfiles.filter(p => p.id === user.id || p.id === user.created_by));
-      setClients(loadedClients.filter(c => c.created_by === user.id));
-      setCarnets(loadedCarnets.filter(c => c.agent_id === user.id));
-      setRequests(loadedRequests.filter(r => {
-        const car = loadedCarnets.find(c => c.id === r.carnet_id);
-        return car && car.agent_id === user.id;
-      }));
-      setLedger(loadedLedger.filter(l => l.agent_id === user.id));
+        setProfiles(loadedProfiles.filter(p => p.id === user.id || p.created_by === user.id || p.role === 'agent'));
+        setClients(loadedClients.filter(c => agentIds.includes(c.created_by)));
+        setCarnets(loadedCarnets.filter(c => c.supervisor_id === user.id || agentIds.includes(c.agent_id)));
+        setRequests(loadedRequests.filter(r => {
+          const car = loadedCarnets.find(c => c.id === r.carnet_id);
+          return car && (car.supervisor_id === user.id || agentIds.includes(car.agent_id));
+        }));
+        setLedger(loadedLedger.filter(l => l.type !== 'org_gain'));
+      } else if (user.role === 'agent') {
+        setProfiles(loadedProfiles.filter(p => p.id === user.id || p.id === user.created_by));
+        setClients(loadedClients.filter(c => c.created_by === user.id));
+        setCarnets(loadedCarnets.filter(c => c.agent_id === user.id));
+        setRequests(loadedRequests.filter(r => {
+          const car = loadedCarnets.find(c => c.id === r.carnet_id);
+          return car && car.agent_id === user.id;
+        }));
+        setLedger(loadedLedger.filter(l => l.agent_id === user.id));
+      }
+
+      setDeposits(loadedDeposits);
+      setRewards(loadedRewards);
+      setSnapshots(loadedSnapshots);
+    } catch (err: any) {
+      console.error("Error refreshing data:", err);
     }
-
-    setDeposits(loadedDeposits);
-    setRewards(loadedRewards);
-    setSnapshots(loadedSnapshots);
   };
 
   useEffect(() => {
-    refreshData();
+    const initAuth = async () => {
+      if (isSupabaseConfigured && supabase) {
+        // Real Supabase Auth state check
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          const profile = await dbSimulated.getCurrentUser();
+          if (profile) {
+            setCurrentUser(profile);
+            await refreshData(profile);
+          } else {
+            setCurrentUser(null);
+          }
+        } else {
+          setCurrentUser(null);
+        }
+
+        // Listen for auth changes
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+          if (session) {
+            const profile = await dbSimulated.getCurrentUser();
+            if (profile) {
+              setCurrentUser(profile);
+              await refreshData(profile);
+            } else {
+              setCurrentUser(null);
+            }
+          } else {
+            setCurrentUser(null);
+          }
+        });
+
+        return () => {
+          subscription.unsubscribe();
+        };
+      } else {
+        // Supabase non configuré : afficher l'écran de connexion, ne pas auto-connecter
+        setCurrentUser(null);
+      }
+    };
+
+    initAuth();
   }, []);
+
+  // Realtime Subscriptions for Supabase database changes
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase || !currentUser) return;
+
+    const channel = supabase
+      .channel('schema-db-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'carnet_deposits' }, async (payload) => {
+        await refreshData();
+        if (payload.eventType === 'INSERT') {
+          const newDep = payload.new as CarnetDeposit;
+          showNotification(
+            'Nouveau Versement',
+            `Un dépôt de ${newDep.amount.toLocaleString()} FC a été enregistré en temps réel.`,
+            'success'
+          );
+        }
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'withdrawal_requests' }, async (payload) => {
+        await refreshData();
+        if (payload.eventType === 'INSERT') {
+          const newReq = payload.new as WithdrawalRequest;
+          showNotification(
+            'Demande de Retrait',
+            `Une demande de liquidation de ${newReq.requested_amount.toLocaleString()} FC a été soumise.`,
+            'warning'
+          );
+        } else if (payload.eventType === 'UPDATE') {
+          const oldReq = payload.old as WithdrawalRequest;
+          const newReq = payload.new as WithdrawalRequest;
+          if (oldReq.status !== newReq.status) {
+            showNotification(
+              newReq.status === 'approved' ? 'Retrait Approuvé' : 'Retrait Rejeté',
+              newReq.status === 'approved' 
+                ? 'Une demande de retrait a été validée.' 
+                : `Une demande de retrait a été rejetée: ${newReq.rejection_reason || ''}`,
+              newReq.status === 'approved' ? 'success' : 'warning'
+            );
+          }
+        }
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'savings_carnets' }, async () => {
+        await refreshData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'clients' }, async () => {
+        await refreshData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'user_profiles' }, async () => {
+        await refreshData();
+      })
+      .subscribe();
+
+    return () => {
+      supabase?.removeChannel(channel);
+    };
+  }, [isSupabaseConfigured, currentUser]);
 
   // Update HTML theme attribute
   useEffect(() => {
@@ -249,119 +363,162 @@ function App() {
     return () => { document.body.style.overflow = ''; };
   }, [mobileSidebarOpen]);
 
-  // Auth Operations
-  const handleRoleChange = (role: UserRole) => {
-    const loadedProfiles = dbSimulated.getProfiles();
-    const targetUser = loadedProfiles.find(p => p.role === role) || loadedProfiles[0];
-    dbSimulated.setCurrentUser(targetUser);
-    refreshData();
-  };
-
-  const handleLogout = () => {
-    dbSimulated.setCurrentUser(null);
-    window.location.reload();
+  const handleLogout = async () => {
+    try {
+      if (isSupabaseConfigured && supabase) {
+        await supabase.auth.signOut();
+      } else {
+        await dbSimulated.setCurrentUser(null);
+      }
+      setCurrentUser(null);
+      window.location.reload();
+    } catch (err: any) {
+      console.error(err);
+    }
   };
 
   // Creation Operations
-  const handleCreateProfile = (profile: Omit<UserProfile, 'id' | 'created_at' | 'updated_at'>, parentId?: string) => {
-    dbSimulated.createProfile(profile, parentId);
-    showNotification('Nouveau Profil', `Profil de ${profile.full_name} créé avec succès.`, 'info');
-    refreshData();
+  const handleCreateProfile = async (
+    profile: Omit<UserProfile, 'id' | 'created_at' | 'updated_at'> & { email?: string; password?: string },
+    parentId?: string
+  ) => {
+    try {
+      await dbSimulated.createProfile(profile, parentId);
+      showNotification('Nouveau Profil', `Profil de ${profile.full_name} créé avec succès.`, 'info');
+      await refreshData();
+    } catch (err: any) {
+      showNotification('Erreur de création', err.message || 'Impossible de créer le profil.', 'warning');
+    }
   };
 
-  const handleDeleteProfile = (id: string) => {
-    dbSimulated.deleteProfile(id);
-    showNotification('Profil Supprimé', `Profil supprimé de l'organisation.`, 'warning');
-    refreshData();
+  const handleDeleteProfile = async (id: string) => {
+    try {
+      await dbSimulated.deleteProfile(id);
+      showNotification('Profil Supprimé', `Profil supprimé de l'organisation.`, 'warning');
+      await refreshData();
+    } catch (err: any) {
+      showNotification('Erreur', err.message || 'Impossible de supprimer.', 'warning');
+    }
   };
 
-  const handleCreateClient = (
+  const handleCreateClient = async (
     client: Omit<Client, 'id' | 'created_at' | 'updated_at'>,
     carnetData?: { daily_mise: number; first_deposit: number }
   ) => {
-    const newClient = dbSimulated.createClient(client);
-    showNotification('Nouveau Client', `Membre ${newClient.name} enregistré avec succès.`, 'success');
-    if (carnetData && currentUser) {
-      dbSimulated.createCarnet({
-        client_id: newClient.id,
-        daily_mise: carnetData.daily_mise,
-        agent_id: currentUser.id,
-        created_by: currentUser.id,
-        updated_by: currentUser.id
-      }, carnetData.first_deposit);
-      showNotification('Carnet Ouvert', `Carnet d'épargne d'ouverture créé pour ${newClient.name}.`, 'success');
-    }
-    refreshData();
-  };
-
-  const handleCreateCarnet = (carnet: Omit<SavingsCarnet, 'id' | 'carnet_number' | 'supervisor_id' | 'status' | 'created_at' | 'updated_at'>, firstDeposit: number) => {
-    dbSimulated.createCarnet(carnet, firstDeposit);
-    showNotification('Carnet Ouvert', `Nouveau carnet ouvert avec premier dépôt de ${firstDeposit} FC.`, 'success');
-    refreshData();
-  };
-
-  const handleAddDeposit = (deposit: Omit<CarnetDeposit, 'id' | 'slots_count' | 'created_at' | 'updated_at'>) => {
-    const newDep = dbSimulated.addDeposit(deposit);
-    showNotification('Versement Validé', `Dépôt de ${deposit.amount} FC enregistré.`, 'success', {
-      onUndo: () => {
-        dbSimulated.deleteDeposit(newDep.id);
-        showNotification('Versement Annulé', `Le versement de ${deposit.amount} FC a été annulé.`, 'warning');
-        refreshData();
+    try {
+      const newClient = await dbSimulated.createClient(client);
+      showNotification('Nouveau Client', `Membre ${newClient.name} enregistré avec succès.`, 'success');
+      if (carnetData && currentUser) {
+        await dbSimulated.createCarnet({
+          client_id: newClient.id,
+          daily_mise: carnetData.daily_mise,
+          agent_id: currentUser.id,
+          created_by: currentUser.id,
+          updated_by: currentUser.id
+        }, carnetData.first_deposit);
+        showNotification('Carnet Ouvert', `Carnet d'épargne d'ouverture créé pour ${newClient.name}.`, 'success');
       }
-    });
-    refreshData();
+      await refreshData();
+    } catch (err: any) {
+      showNotification('Erreur', err.message || 'Impossible de créer le client.', 'warning');
+    }
+  };
+
+  const handleCreateCarnet = async (
+    carnet: Omit<SavingsCarnet, 'id' | 'carnet_number' | 'supervisor_id' | 'status' | 'created_at' | 'updated_at'>,
+    firstDeposit: number
+  ) => {
+    try {
+      await dbSimulated.createCarnet(carnet, firstDeposit);
+      showNotification('Carnet Ouvert', `Nouveau carnet ouvert avec premier dépôt de ${firstDeposit} FC.`, 'success');
+      await refreshData();
+    } catch (err: any) {
+      showNotification('Erreur', err.message || 'Impossible d\'ouvrir le carnet.', 'warning');
+    }
+  };
+
+  const handleAddDeposit = async (deposit: Omit<CarnetDeposit, 'id' | 'slots_count' | 'created_at' | 'updated_at'>) => {
+    try {
+      const newDep = await dbSimulated.addDeposit(deposit);
+      showNotification('Versement Validé', `Dépôt de ${deposit.amount} FC enregistré.`, 'success', {
+        onUndo: async () => {
+          try {
+            await dbSimulated.deleteDeposit(newDep.id);
+            showNotification('Versement Annulé', `Le versement de ${deposit.amount} FC a été annulé.`, 'warning');
+            await refreshData();
+          } catch (undoErr: any) {
+            showNotification('Erreur d\'annulation', undoErr.message || 'Impossible d\'annuler le versement.', 'warning');
+          }
+        }
+      });
+      await refreshData();
+    } catch (err: any) {
+      showNotification('Erreur de dépôt', err.message || 'Impossible d\'ajouter le versement.', 'warning');
+    }
   };
   
-  const handleDeleteDeposit = (depositId: string) => {
+  const handleDeleteDeposit = async (depositId: string) => {
     if (!currentUser) return;
     try {
-      dbSimulated.deleteDeposit(depositId);
+      await dbSimulated.deleteDeposit(depositId);
       showNotification('Dépôt Supprimé', `Le versement a été annulé avec succès.`, 'warning');
-      refreshData();
+      await refreshData();
     } catch (err: any) {
       showNotification('Erreur', err.message || 'Impossible de supprimer ce versement.', 'warning');
     }
   };
 
-  const handleUpdateDailyMise = (carnetId: string, newMise: number) => {
-    if (!currentUser) return;
-    dbSimulated.updateCarnetDailyMise(carnetId, newMise, currentUser.id);
-    showNotification('Mise Journalière', `Mise journalière mise à jour à ${newMise} FC.`, 'info');
-    refreshData();
-  };
-
-  const handleRequestWithdrawal = (carnetId: string, amount: number) => {
-    if (!currentUser) return;
-    dbSimulated.createRequest({
-      carnet_id: carnetId,
-      requested_amount: amount,
-      created_by: currentUser.id,
-      updated_by: currentUser.id
-    });
-    showNotification('Retrait Initié', `Demande de liquidation de ${amount} FC soumise pour validation.`, 'warning');
-    refreshData();
-  };
-
-  const handleCancelWithdrawalRequest = (requestId: string) => {
+  const handleUpdateDailyMise = async (carnetId: string, newMise: number) => {
     if (!currentUser) return;
     try {
-      dbSimulated.cancelRequest(requestId);
+      await dbSimulated.updateCarnetDailyMise(carnetId, newMise, currentUser.id);
+      showNotification('Mise Journalière', `Mise journalière mise à jour à ${newMise} FC.`, 'info');
+      await refreshData();
+    } catch (err: any) {
+      showNotification('Erreur', err.message || 'Impossible de modifier la mise.', 'warning');
+    }
+  };
+
+  const handleRequestWithdrawal = async (carnetId: string, amount: number) => {
+    if (!currentUser) return;
+    try {
+      await dbSimulated.createRequest({
+        carnet_id: carnetId,
+        requested_amount: amount,
+        created_by: currentUser.id,
+        updated_by: currentUser.id
+      });
+      showNotification('Retrait Initié', `Demande de liquidation de ${amount} FC soumise pour validation.`, 'warning');
+      await refreshData();
+    } catch (err: any) {
+      showNotification('Erreur', err.message || 'Impossible de soumettre le retrait.', 'warning');
+    }
+  };
+
+  const handleCancelWithdrawalRequest = async (requestId: string) => {
+    if (!currentUser) return;
+    try {
+      await dbSimulated.cancelRequest(requestId);
       showNotification('Retrait Annulé', 'La demande de retrait a été annulée.', 'info');
-      refreshData();
+      await refreshData();
     } catch (err: any) {
       showNotification('Erreur', err.message || 'Impossible d\'annuler la demande.', 'warning');
     }
   };
 
-  const handleReviewRequest = (requestId: string, status: 'approved' | 'rejected', reason?: string) => {
+  const handleReviewRequest = async (requestId: string, status: 'approved' | 'rejected', reason?: string) => {
     if (!currentUser) return;
-    dbSimulated.reviewRequest(requestId, status, currentUser.id, reason);
-    showNotification(
-      status === 'approved' ? 'Retrait Approuvé' : 'Retrait Rejeté',
-      status === 'approved' ? `La demande de retrait a été liquidée avec succès.` : `La demande a été rejetée.`,
-      status === 'approved' ? 'success' : 'warning'
-    );
-    refreshData();
+    try {
+      await dbSimulated.reviewRequest(requestId, status, currentUser.id, reason);
+      showNotification(
+        status === 'approved' ? 'Retrait Approuvé' : 'Retrait Rejeté',
+        status === 'approved' ? `La demande de retrait a été liquidée avec succès.` : `La demande a été rejetée.`,
+        status === 'approved' ? 'success' : 'warning'
+      );
+      await refreshData();
+    } catch (err: any) {
+      showNotification('Erreur', err.message || 'Impossible de traiter la demande.', 'warning');
+    }
   };
 
   const handleQuickLinkNewCarnet = (client: Client) => {
@@ -378,11 +535,48 @@ function App() {
     }
   };
 
+  const handleLogin = async (email: string, password: string) => {
+    if (!supabase) return;
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+  };
+
+  const handleSignup = async (email: string, password: string, fullName: string, phone: string, role: UserRole) => {
+    if (!supabase) return;
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          full_name: fullName,
+          phone: phone,
+          role: role
+        }
+      }
+    });
+    if (error) throw error;
+  };
+
+  const handleSimulationLogin = async (role: UserRole) => {
+    try {
+      const loadedProfiles = await dbSimulated.getProfiles();
+      const targetUser = loadedProfiles.find(p => p.role === role) || loadedProfiles[0];
+      await dbSimulated.setCurrentUser(targetUser);
+      setCurrentUser(targetUser);
+      await refreshData(targetUser);
+    } catch (err: any) {
+      showNotification('Erreur', err.message || 'Impossible de se connecter.', 'warning');
+    }
+  };
+
   if (!currentUser) {
     return (
-      <div className="auth-wrapper">
-        <div style={{ color: 'white', textAlign: 'center' }}>Chargement de l'environnement...</div>
-      </div>
+      <AuthScreen
+        isSupabaseConfigured={isSupabaseConfigured}
+        onLogin={handleLogin}
+        onSignup={handleSignup}
+        onSimulationLogin={handleSimulationLogin}
+      />
     );
   }
 
@@ -465,15 +659,9 @@ function App() {
 
         {/* Status indicator inside drawer */}
         <div className="mobile-drawer-status">
-          {isSupabaseConfigured ? (
-            <div className="status-indicator live" style={{ fontSize: '11px' }}>
-              <Database size={12} /> Connecté à Supabase
-            </div>
-          ) : (
-            <div className="status-indicator simulation" style={{ fontSize: '11px' }}>
-              <Sparkles size={12} /> Mode Simulation
-            </div>
-          )}
+          <div className="status-indicator live" style={{ fontSize: '11px' }}>
+            <Database size={12} /> Connecté à Supabase
+          </div>
         </div>
 
         {/* Drawer nav: all 6 items */}
@@ -503,21 +691,6 @@ function App() {
             </div>
           </div>
 
-          {/* Role switcher inside drawer */}
-          <div className="mobile-drawer-role-row">
-            <Shield size={13} style={{ color: 'var(--primary)', flexShrink: 0 }} />
-            <select
-              value={currentUser.role}
-              onChange={e => handleRoleChange(e.target.value as UserRole)}
-              className="mobile-drawer-role-select"
-            >
-              <option value="super_admin">Super Admin</option>
-              <option value="admin_principal">Admin Principal</option>
-              <option value="supervisor">Superviseur</option>
-              <option value="agent">Agent de Terrain</option>
-            </select>
-          </div>
-
           <button
             className="btn btn-secondary"
             style={{ width: '100%', gap: '8px', color: 'var(--sb-logout-color)', backgroundColor: 'transparent', border: '1px solid var(--sb-logout-border)', marginTop: '4px' }}
@@ -533,28 +706,16 @@ function App() {
 
         {/* Desktop Top Navbar */}
         <header className="top-bar no-print">
-          <div>
-            {isSupabaseConfigured ? (
-              <div className="status-indicator live">
-                <Database size={14} /> Connecté à Supabase Production
-              </div>
-            ) : (
-              <div className="status-indicator simulation">
-                <Sparkles size={14} /> Mode Simulation local (Persistant)
-              </div>
-            )}
+          <div className="top-bar-user-info">
+            <div className="user-avatar" style={{ width: '32px', height: '32px', fontSize: '13px', flexShrink: 0 }}>
+              {currentUser.full_name.charAt(0)}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>
+              <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-dark)' }}>{currentUser.full_name}</span>
+              <span style={{ fontSize: '11px', color: 'var(--text-light)' }}>{getRoleLabel(currentUser.role)}</span>
+            </div>
           </div>
           <div className="top-bar-actions">
-            <div className="top-bar-role-selector">
-              <Shield size={14} style={{ color: 'var(--primary)' }} />
-              <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-light)', marginRight: '4px' }}>Tester comme :</label>
-              <select value={currentUser.role} onChange={e => handleRoleChange(e.target.value as UserRole)}>
-                <option value="super_admin">Super Admin</option>
-                <option value="admin_principal">Admin Principal</option>
-                <option value="supervisor">Superviseur Bukavu</option>
-                <option value="agent">Agent terrain Bukavu</option>
-              </select>
-            </div>
             {renderNotificationBell(false)}
             <button className="btn btn-secondary" style={{ padding: '8px' }} onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>
               {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
@@ -571,15 +732,6 @@ function App() {
           </button>
 
           <div className="mobile-header-actions">
-            <div className="mobile-role-select">
-              <Shield size={12} style={{ color: 'var(--primary)' }} />
-              <select value={currentUser.role} onChange={e => handleRoleChange(e.target.value as UserRole)}>
-                <option value="super_admin">Super Admin</option>
-                <option value="admin_principal">Admin Principal</option>
-                <option value="supervisor">Superviseur</option>
-                <option value="agent">Agent</option>
-              </select>
-            </div>
             {renderNotificationBell(true)}
             <button className="mobile-theme-btn" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>
               {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
@@ -593,7 +745,13 @@ function App() {
             <DashboardOverview carnets={carnets} ledger={ledger} currentUser={currentUser} deposits={deposits} />
           )}
           {activeTab === 'profiles' && (
-            <ProfilesView profiles={profiles} currentUser={currentUser} onCreateProfile={handleCreateProfile} onDeleteProfile={handleDeleteProfile} />
+            <ProfilesView 
+              profiles={profiles} 
+              currentUser={currentUser} 
+              onCreateProfile={handleCreateProfile} 
+              onDeleteProfile={handleDeleteProfile} 
+              isSupabaseConfigured={isSupabaseConfigured}
+            />
           )}
           {activeTab === 'clients' && (
             <ClientsView 

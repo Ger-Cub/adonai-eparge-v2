@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import logoAdonai from '../assets/logo-adonai.jpg';
-import { Mail, Lock, User, Phone, Shield, Sparkles, Database } from 'lucide-react';
+import { Mail, Lock, Sparkles, Database } from 'lucide-react';
 import type { UserRole } from '../lib/types';
 
 interface AuthScreenProps {
@@ -13,15 +13,10 @@ interface AuthScreenProps {
 export const AuthScreen: React.FC<AuthScreenProps> = ({
     isSupabaseConfigured,
     onLogin,
-    onSignup,
     onSimulationLogin,
 }) => {
-    const [isRegistering, setIsRegistering] = useState(false);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
-    const [fullName, setFullName] = useState('');
-    const [phone, setPhone] = useState('');
-    const [role, setRole] = useState<UserRole>('agent');
     const [loading, setLoading] = useState(false);
     const [errorMsg, setErrorMsg] = useState('');
     const [successMsg, setSuccessMsg] = useState('');
@@ -31,35 +26,17 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         setErrorMsg('');
         setSuccessMsg('');
 
-        if (isRegistering) {
-            if (!email || !password || !fullName || !phone || !role) {
-                setErrorMsg('Veuillez remplir tous les champs obligatoires.');
-                return;
-            }
-            setLoading(true);
-            try {
-                await onSignup(email, password, fullName, phone, role);
-                setSuccessMsg('Compte créé avec succès ! Connectez-vous maintenant.');
-                setIsRegistering(false);
-                setPassword('');
-            } catch (err: any) {
-                setErrorMsg(err.message || "Une erreur est survenue lors de l'inscription.");
-            } finally {
-                setLoading(false);
-            }
-        } else {
-            if (!email || !password) {
-                setErrorMsg('Veuillez renseigner votre email et votre mot de passe.');
-                return;
-            }
-            setLoading(true);
-            try {
-                await onLogin(email, password);
-            } catch (err: any) {
-                setErrorMsg(err.message || 'Email ou mot de passe incorrect.');
-            } finally {
-                setLoading(false);
-            }
+        if (!email || !password) {
+            setErrorMsg('Veuillez renseigner votre email et votre mot de passe.');
+            return;
+        }
+        setLoading(true);
+        try {
+            await onLogin(email, password);
+        } catch (err: any) {
+            setErrorMsg(err.message || 'Email ou mot de passe incorrect.');
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -86,13 +63,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         outline: 'none',
         transition: 'border-color 0.2s',
         boxSizing: 'border-box',
-    };
-
-    const selectStyle: React.CSSProperties = {
-        ...inputStyle,
-        appearance: 'none',
-        WebkitAppearance: 'none',
-        cursor: 'pointer',
     };
 
     const simButtonStyle = (_roleColor: string): React.CSSProperties => ({
@@ -182,7 +152,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     </h1>
                     <p style={{ fontSize: '13px', color: '#64748b', marginTop: '6px', fontWeight: 500 }}>
                         {isSupabaseConfigured
-                            ? (isRegistering ? 'Créez un nouveau compte utilisateur' : 'Connectez-vous à votre espace de gestion')
+                            ? 'Connectez-vous à votre espace de gestion'
                             : 'Mode Démo / Simulation'}
                     </p>
                 </div>
@@ -286,123 +256,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         </div>
                     ) : (
                         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-                            {isRegistering && (
-                                <>
-                                    {/* Full Name */}
-                                    <div>
-                                        <label style={{
-                                            display: 'block',
-                                            fontSize: '12px',
-                                            fontWeight: 700,
-                                            color: '#94a3b8',
-                                            marginBottom: '8px',
-                                            textTransform: 'uppercase',
-                                            letterSpacing: '0.06em',
-                                        }}>
-                                            Nom Complet
-                                        </label>
-                                        <div style={{ position: 'relative' }}>
-                                            <span style={{
-                                                position: 'absolute', left: '12px', top: '50%',
-                                                transform: 'translateY(-50%)', color: '#475569',
-                                                display: 'flex', alignItems: 'center',
-                                            }}>
-                                                <User size={16} />
-                                            </span>
-                                            <input
-                                                id="auth-fullname"
-                                                type="text"
-                                                placeholder="Jean Dupont"
-                                                value={fullName}
-                                                onChange={e => setFullName(e.target.value)}
-                                                style={inputStyle}
-                                                onFocus={e => e.target.style.borderColor = 'rgba(99,102,241,0.6)'}
-                                                onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
-                                                required
-                                            />
-                                        </div>
-                                    </div>
-
-                                    {/* Phone */}
-                                    <div>
-                                        <label style={{
-                                            display: 'block',
-                                            fontSize: '12px',
-                                            fontWeight: 700,
-                                            color: '#94a3b8',
-                                            marginBottom: '8px',
-                                            textTransform: 'uppercase',
-                                            letterSpacing: '0.06em',
-                                        }}>
-                                            Téléphone
-                                        </label>
-                                        <div style={{ position: 'relative' }}>
-                                            <span style={{
-                                                position: 'absolute', left: '12px', top: '50%',
-                                                transform: 'translateY(-50%)', color: '#475569',
-                                                display: 'flex', alignItems: 'center',
-                                            }}>
-                                                <Phone size={16} />
-                                            </span>
-                                            <input
-                                                id="auth-phone"
-                                                type="tel"
-                                                placeholder="+243 999 999 999"
-                                                value={phone}
-                                                onChange={e => setPhone(e.target.value)}
-                                                style={inputStyle}
-                                                onFocus={e => e.target.style.borderColor = 'rgba(99,102,241,0.6)'}
-                                                onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
-                                                required
-                                            />
-                                        </div>
-                                    </div>
-
-                                    {/* Role */}
-                                    <div>
-                                        <label style={{
-                                            display: 'block',
-                                            fontSize: '12px',
-                                            fontWeight: 700,
-                                            color: '#94a3b8',
-                                            marginBottom: '8px',
-                                            textTransform: 'uppercase',
-                                            letterSpacing: '0.06em',
-                                        }}>
-                                            Rôle
-                                        </label>
-                                        <div style={{ position: 'relative' }}>
-                                            <span style={{
-                                                position: 'absolute', left: '12px', top: '50%',
-                                                transform: 'translateY(-50%)', color: '#475569',
-                                                display: 'flex', alignItems: 'center',
-                                                pointerEvents: 'none',
-                                            }}>
-                                                <Shield size={16} />
-                                            </span>
-                                            <select
-                                                id="auth-role"
-                                                value={role}
-                                                onChange={e => setRole(e.target.value as UserRole)}
-                                                style={selectStyle}
-                                                onFocus={e => e.target.style.borderColor = 'rgba(99,102,241,0.6)'}
-                                                onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
-                                                required
-                                            >
-                                                <option value="agent" style={{ backgroundColor: '#0f172a' }}>Agent de terrain</option>
-                                                <option value="supervisor" style={{ backgroundColor: '#0f172a' }}>Superviseur</option>
-                                                <option value="admin_principal" style={{ backgroundColor: '#0f172a' }}>Administrateur Principal</option>
-                                                <option value="super_admin" style={{ backgroundColor: '#0f172a' }}>Super Administrateur</option>
-                                            </select>
-                                            <span style={{
-                                                position: 'absolute', right: '14px', top: '50%',
-                                                transform: 'translateY(-50%)', color: '#64748b',
-                                                pointerEvents: 'none', fontSize: '10px'
-                                            }}>▼</span>
-                                        </div>
-                                    </div>
-                                </>
-                            )}
 
                             {/* Email */}
                             <div>
@@ -515,35 +368,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                                             display: 'inline-block',
                                             animation: 'spin 0.7s linear infinite',
                                         }} />
-                                        {isRegistering ? "Inscription..." : "Connexion..."}
+                                        Connexion...
                                     </span>
-                                ) : (isRegistering ? "Créer un compte" : "Se connecter")}
+                                ) : "Se connecter"}
                             </button>
-
-                            {/* Toggle link */}
-                            <div style={{ textAlign: 'center', marginTop: '12px' }}>
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setIsRegistering(!isRegistering);
-                                        setErrorMsg('');
-                                        setSuccessMsg('');
-                                    }}
-                                    style={{
-                                        background: 'none',
-                                        border: 'none',
-                                        color: '#818cf8',
-                                        fontSize: '13px',
-                                        fontWeight: 600,
-                                        cursor: 'pointer',
-                                        outline: 'none',
-                                    }}
-                                    onMouseOver={e => e.currentTarget.style.textDecoration = 'underline'}
-                                    onMouseOut={e => e.currentTarget.style.textDecoration = 'none'}
-                                >
-                                    {isRegistering ? "Déjà un compte ? Connectez-vous" : "Pas encore de compte ? S'inscrire"}
-                                </button>
-                            </div>
                         </form>
                     )}
 

@@ -1,31 +1,75 @@
 import React, { useState } from 'react';
 import logoAdonai from '../assets/logo-adonai.jpg';
-import { Mail, Lock } from 'lucide-react';
+import { Mail, Lock, User, Phone, Shield, Sparkles, Database } from 'lucide-react';
+import type { UserRole } from '../lib/types';
 
 interface AuthScreenProps {
+    isSupabaseConfigured: boolean;
     onLogin: (email: string, password: string) => Promise<void>;
+    onSignup: (email: string, password: string, fullName: string, phone: string, role: UserRole) => Promise<void>;
+    onSimulationLogin: (role: UserRole) => Promise<void>;
 }
 
-export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
+export const AuthScreen: React.FC<AuthScreenProps> = ({
+    isSupabaseConfigured,
+    onLogin,
+    onSignup,
+    onSimulationLogin,
+}) => {
+    const [isRegistering, setIsRegistering] = useState(false);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [fullName, setFullName] = useState('');
+    const [phone, setPhone] = useState('');
+    const [role, setRole] = useState<UserRole>('agent');
     const [loading, setLoading] = useState(false);
     const [errorMsg, setErrorMsg] = useState('');
+    const [successMsg, setSuccessMsg] = useState('');
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setErrorMsg('');
+        setSuccessMsg('');
 
-        if (!email || !password) {
-            setErrorMsg('Veuillez renseigner votre email et votre mot de passe.');
-            return;
+        if (isRegistering) {
+            if (!email || !password || !fullName || !phone || !role) {
+                setErrorMsg('Veuillez remplir tous les champs obligatoires.');
+                return;
+            }
+            setLoading(true);
+            try {
+                await onSignup(email, password, fullName, phone, role);
+                setSuccessMsg('Compte créé avec succès ! Connectez-vous maintenant.');
+                setIsRegistering(false);
+                setPassword('');
+            } catch (err: any) {
+                setErrorMsg(err.message || "Une erreur est survenue lors de l'inscription.");
+            } finally {
+                setLoading(false);
+            }
+        } else {
+            if (!email || !password) {
+                setErrorMsg('Veuillez renseigner votre email et votre mot de passe.');
+                return;
+            }
+            setLoading(true);
+            try {
+                await onLogin(email, password);
+            } catch (err: any) {
+                setErrorMsg(err.message || 'Email ou mot de passe incorrect.');
+            } finally {
+                setLoading(false);
+            }
         }
+    };
 
+    const handleSimulationClick = async (selectedRole: UserRole) => {
+        setErrorMsg('');
         setLoading(true);
         try {
-            await onLogin(email, password);
+            await onSimulationLogin(selectedRole);
         } catch (err: any) {
-            setErrorMsg(err.message || 'Email ou mot de passe incorrect.');
+            setErrorMsg(err.message || 'Impossible de se connecter en mode simulation.');
         } finally {
             setLoading(false);
         }
@@ -43,6 +87,38 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
         transition: 'border-color 0.2s',
         boxSizing: 'border-box',
     };
+
+    const selectStyle: React.CSSProperties = {
+        ...inputStyle,
+        appearance: 'none',
+        WebkitAppearance: 'none',
+        cursor: 'pointer',
+    };
+
+    const simButtonStyle = (_roleColor: string): React.CSSProperties => ({
+        display: 'flex',
+        alignItems: 'center',
+        gap: '12px',
+        width: '100%',
+        padding: '14px 18px',
+        borderRadius: '12px',
+        border: '1px solid rgba(255, 255, 255, 0.08)',
+        backgroundColor: 'rgba(30, 41, 59, 0.5)',
+        color: '#f8fafc',
+        fontSize: '14px',
+        fontWeight: 600,
+        textAlign: 'left',
+        cursor: 'pointer',
+        transition: 'all 0.2s ease',
+        boxSizing: 'border-box',
+    });
+
+    const simulationRoles: { role: UserRole; label: string; desc: string; color: string }[] = [
+        { role: 'super_admin', label: 'Super Administrateur', desc: 'Accès total à toute la configuration', color: '#818cf8' },
+        { role: 'admin_principal', label: 'Administrateur Principal', desc: 'Gestion financière et validation globale', color: '#38bdf8' },
+        { role: 'supervisor', label: 'Superviseur', desc: 'Gestion et validation des agents de terrain', color: '#34d399' },
+        { role: 'agent', label: 'Agent de Terrain', desc: 'Enregistrement de clients et collecte d\'épargne', color: '#fbbf24' }
+    ];
 
     return (
         <div style={{
@@ -105,11 +181,13 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
                         Adonaï Épargne
                     </h1>
                     <p style={{ fontSize: '13px', color: '#64748b', marginTop: '6px', fontWeight: 500 }}>
-                        Connectez-vous à votre espace de gestion
+                        {isSupabaseConfigured
+                            ? (isRegistering ? 'Créez un nouveau compte utilisateur' : 'Connectez-vous à votre espace de gestion')
+                            : 'Mode Démo / Simulation'}
                     </p>
                 </div>
 
-                {/* Form body */}
+                {/* Form or Simulation body */}
                 <div style={{ padding: '32px 36px 36px' }}>
                     {errorMsg && (
                         <div style={{
@@ -130,131 +208,380 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
                         </div>
                     )}
 
-                    <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-                        {/* Email */}
-                        <div>
-                            <label style={{
-                                display: 'block',
-                                fontSize: '12px',
-                                fontWeight: 700,
-                                color: '#94a3b8',
-                                marginBottom: '8px',
-                                textTransform: 'uppercase',
-                                letterSpacing: '0.06em',
-                            }}>
-                                Adresse Email
-                            </label>
-                            <div style={{ position: 'relative' }}>
-                                <span style={{
-                                    position: 'absolute', left: '12px', top: '50%',
-                                    transform: 'translateY(-50%)', color: '#475569',
-                                    display: 'flex', alignItems: 'center',
-                                }}>
-                                    <Mail size={16} />
-                                </span>
-                                <input
-                                    id="auth-email"
-                                    type="email"
-                                    placeholder="votre.email@adonai.com"
-                                    value={email}
-                                    onChange={e => setEmail(e.target.value)}
-                                    style={inputStyle}
-                                    onFocus={e => e.target.style.borderColor = 'rgba(99,102,241,0.6)'}
-                                    onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
-                                    required
-                                    autoComplete="email"
-                                />
-                            </div>
+                    {successMsg && (
+                        <div style={{
+                            padding: '12px 14px',
+                            borderRadius: '8px',
+                            backgroundColor: 'rgba(16, 185, 129, 0.12)',
+                            border: '1px solid rgba(16, 185, 129, 0.25)',
+                            color: '#a7f3d0',
+                            fontSize: '13px',
+                            marginBottom: '20px',
+                            fontWeight: 500,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                        }}>
+                            <span style={{ fontSize: '16px' }}>✓</span>
+                            {successMsg}
                         </div>
+                    )}
 
-                        {/* Password */}
-                        <div>
-                            <label style={{
-                                display: 'block',
-                                fontSize: '12px',
-                                fontWeight: 700,
-                                color: '#94a3b8',
-                                marginBottom: '8px',
-                                textTransform: 'uppercase',
-                                letterSpacing: '0.06em',
-                            }}>
-                                Mot de passe
-                            </label>
-                            <div style={{ position: 'relative' }}>
-                                <span style={{
-                                    position: 'absolute', left: '12px', top: '50%',
-                                    transform: 'translateY(-50%)', color: '#475569',
-                                    display: 'flex', alignItems: 'center',
-                                }}>
-                                    <Lock size={16} />
-                                </span>
-                                <input
-                                    id="auth-password"
-                                    type="password"
-                                    placeholder="••••••••"
-                                    value={password}
-                                    onChange={e => setPassword(e.target.value)}
-                                    style={inputStyle}
-                                    onFocus={e => e.target.style.borderColor = 'rgba(99,102,241,0.6)'}
-                                    onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
-                                    required
-                                    autoComplete="current-password"
-                                />
-                            </div>
-                        </div>
-
-                        {/* Submit */}
-                        <button
-                            id="auth-submit"
-                            type="submit"
-                            disabled={loading}
-                            style={{
-                                width: '100%',
-                                padding: '13px',
+                    {!isSupabaseConfigured ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px',
+                                padding: '12px 14px',
                                 borderRadius: '10px',
-                                background: loading
-                                    ? 'rgba(99,102,241,0.5)'
-                                    : 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
-                                color: 'white',
-                                border: 'none',
-                                fontWeight: 700,
-                                fontSize: '15px',
-                                cursor: loading ? 'not-allowed' : 'pointer',
-                                marginTop: '8px',
-                                transition: 'all 0.2s',
-                                boxShadow: loading ? 'none' : '0 4px 16px rgba(99, 102, 241, 0.35)',
-                                letterSpacing: '0.01em',
-                            }}
-                            onMouseOver={e => {
-                                if (!loading) e.currentTarget.style.transform = 'translateY(-1px)';
-                            }}
-                            onMouseOut={e => {
-                                e.currentTarget.style.transform = 'translateY(0)';
-                            }}
-                        >
-                            {loading ? (
-                                <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                                    <span style={{
-                                        width: '16px', height: '16px',
-                                        border: '2px solid rgba(255,255,255,0.3)',
-                                        borderTopColor: 'white',
-                                        borderRadius: '50%',
-                                        display: 'inline-block',
-                                        animation: 'spin 0.7s linear infinite',
-                                    }} />
-                                    Connexion en cours...
+                                backgroundColor: 'rgba(245, 158, 11, 0.08)',
+                                border: '1px solid rgba(245, 158, 11, 0.2)',
+                                color: '#f59e0b',
+                                fontSize: '12.5px',
+                                lineHeight: 1.4,
+                                fontWeight: 500,
+                            }}>
+                                <Sparkles size={20} style={{ flexShrink: 0 }} />
+                                <span>
+                                    <strong>Base locale active.</strong> Choisissez un profil ci-dessous pour tester l'interface :
                                 </span>
-                            ) : 'Se connecter'}
-                        </button>
-                    </form>
+                            </div>
+
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                {simulationRoles.map(({ role: r, label, desc, color }) => (
+                                    <button
+                                        key={r}
+                                        onClick={() => handleSimulationClick(r)}
+                                        disabled={loading}
+                                        style={simButtonStyle(color)}
+                                        onMouseOver={e => {
+                                            e.currentTarget.style.backgroundColor = 'rgba(30, 41, 59, 0.8)';
+                                            e.currentTarget.style.borderColor = color;
+                                            e.currentTarget.style.transform = 'translateX(4px)';
+                                            e.currentTarget.style.boxShadow = `0 4px 12px rgba(0, 0, 0, 0.2), 0 0 8px ${color}1a`;
+                                        }}
+                                        onMouseOut={e => {
+                                            e.currentTarget.style.backgroundColor = 'rgba(30, 41, 59, 0.5)';
+                                            e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.08)';
+                                            e.currentTarget.style.transform = 'translateX(0)';
+                                            e.currentTarget.style.boxShadow = 'none';
+                                        }}
+                                    >
+                                        <div style={{
+                                            width: '8px',
+                                            height: '8px',
+                                            borderRadius: '50%',
+                                            backgroundColor: color,
+                                            boxShadow: `0 0 8px ${color}`,
+                                            flexShrink: 0,
+                                        }} />
+                                        <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+                                            <span style={{ fontSize: '14px', fontWeight: 700, color: '#f8fafc' }}>{label}</span>
+                                            <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 500, marginTop: '2px' }}>{desc}</span>
+                                        </div>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    ) : (
+                        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+                            {isRegistering && (
+                                <>
+                                    {/* Full Name */}
+                                    <div>
+                                        <label style={{
+                                            display: 'block',
+                                            fontSize: '12px',
+                                            fontWeight: 700,
+                                            color: '#94a3b8',
+                                            marginBottom: '8px',
+                                            textTransform: 'uppercase',
+                                            letterSpacing: '0.06em',
+                                        }}>
+                                            Nom Complet
+                                        </label>
+                                        <div style={{ position: 'relative' }}>
+                                            <span style={{
+                                                position: 'absolute', left: '12px', top: '50%',
+                                                transform: 'translateY(-50%)', color: '#475569',
+                                                display: 'flex', alignItems: 'center',
+                                            }}>
+                                                <User size={16} />
+                                            </span>
+                                            <input
+                                                id="auth-fullname"
+                                                type="text"
+                                                placeholder="Jean Dupont"
+                                                value={fullName}
+                                                onChange={e => setFullName(e.target.value)}
+                                                style={inputStyle}
+                                                onFocus={e => e.target.style.borderColor = 'rgba(99,102,241,0.6)'}
+                                                onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
+                                                required
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Phone */}
+                                    <div>
+                                        <label style={{
+                                            display: 'block',
+                                            fontSize: '12px',
+                                            fontWeight: 700,
+                                            color: '#94a3b8',
+                                            marginBottom: '8px',
+                                            textTransform: 'uppercase',
+                                            letterSpacing: '0.06em',
+                                        }}>
+                                            Téléphone
+                                        </label>
+                                        <div style={{ position: 'relative' }}>
+                                            <span style={{
+                                                position: 'absolute', left: '12px', top: '50%',
+                                                transform: 'translateY(-50%)', color: '#475569',
+                                                display: 'flex', alignItems: 'center',
+                                            }}>
+                                                <Phone size={16} />
+                                            </span>
+                                            <input
+                                                id="auth-phone"
+                                                type="tel"
+                                                placeholder="+243 999 999 999"
+                                                value={phone}
+                                                onChange={e => setPhone(e.target.value)}
+                                                style={inputStyle}
+                                                onFocus={e => e.target.style.borderColor = 'rgba(99,102,241,0.6)'}
+                                                onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
+                                                required
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Role */}
+                                    <div>
+                                        <label style={{
+                                            display: 'block',
+                                            fontSize: '12px',
+                                            fontWeight: 700,
+                                            color: '#94a3b8',
+                                            marginBottom: '8px',
+                                            textTransform: 'uppercase',
+                                            letterSpacing: '0.06em',
+                                        }}>
+                                            Rôle
+                                        </label>
+                                        <div style={{ position: 'relative' }}>
+                                            <span style={{
+                                                position: 'absolute', left: '12px', top: '50%',
+                                                transform: 'translateY(-50%)', color: '#475569',
+                                                display: 'flex', alignItems: 'center',
+                                                pointerEvents: 'none',
+                                            }}>
+                                                <Shield size={16} />
+                                            </span>
+                                            <select
+                                                id="auth-role"
+                                                value={role}
+                                                onChange={e => setRole(e.target.value as UserRole)}
+                                                style={selectStyle}
+                                                onFocus={e => e.target.style.borderColor = 'rgba(99,102,241,0.6)'}
+                                                onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
+                                                required
+                                            >
+                                                <option value="agent" style={{ backgroundColor: '#0f172a' }}>Agent de terrain</option>
+                                                <option value="supervisor" style={{ backgroundColor: '#0f172a' }}>Superviseur</option>
+                                                <option value="admin_principal" style={{ backgroundColor: '#0f172a' }}>Administrateur Principal</option>
+                                                <option value="super_admin" style={{ backgroundColor: '#0f172a' }}>Super Administrateur</option>
+                                            </select>
+                                            <span style={{
+                                                position: 'absolute', right: '14px', top: '50%',
+                                                transform: 'translateY(-50%)', color: '#64748b',
+                                                pointerEvents: 'none', fontSize: '10px'
+                                            }}>▼</span>
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+
+                            {/* Email */}
+                            <div>
+                                <label style={{
+                                    display: 'block',
+                                    fontSize: '12px',
+                                    fontWeight: 700,
+                                    color: '#94a3b8',
+                                    marginBottom: '8px',
+                                    textTransform: 'uppercase',
+                                    letterSpacing: '0.06em',
+                                }}>
+                                    Adresse Email
+                                </label>
+                                <div style={{ position: 'relative' }}>
+                                    <span style={{
+                                        position: 'absolute', left: '12px', top: '50%',
+                                        transform: 'translateY(-50%)', color: '#475569',
+                                        display: 'flex', alignItems: 'center',
+                                    }}>
+                                        <Mail size={16} />
+                                    </span>
+                                    <input
+                                        id="auth-email"
+                                        type="email"
+                                        placeholder="votre.email@adonai.com"
+                                        value={email}
+                                        onChange={e => setEmail(e.target.value)}
+                                        style={inputStyle}
+                                        onFocus={e => e.target.style.borderColor = 'rgba(99,102,241,0.6)'}
+                                        onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
+                                        required
+                                        autoComplete="email"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Password */}
+                            <div>
+                                <label style={{
+                                    display: 'block',
+                                    fontSize: '12px',
+                                    fontWeight: 700,
+                                    color: '#94a3b8',
+                                    marginBottom: '8px',
+                                    textTransform: 'uppercase',
+                                    letterSpacing: '0.06em',
+                                }}>
+                                    Mot de passe
+                                </label>
+                                <div style={{ position: 'relative' }}>
+                                    <span style={{
+                                        position: 'absolute', left: '12px', top: '50%',
+                                        transform: 'translateY(-50%)', color: '#475569',
+                                        display: 'flex', alignItems: 'center',
+                                    }}>
+                                        <Lock size={16} />
+                                    </span>
+                                    <input
+                                        id="auth-password"
+                                        type="password"
+                                        placeholder="••••••••"
+                                        value={password}
+                                        onChange={e => setPassword(e.target.value)}
+                                        style={inputStyle}
+                                        onFocus={e => e.target.style.borderColor = 'rgba(99,102,241,0.6)'}
+                                        onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
+                                        required
+                                        autoComplete="current-password"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Submit */}
+                            <button
+                                id="auth-submit"
+                                type="submit"
+                                disabled={loading}
+                                style={{
+                                    width: '100%',
+                                    padding: '13px',
+                                    borderRadius: '10px',
+                                    background: loading
+                                        ? 'rgba(99,102,241,0.5)'
+                                        : 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+                                    color: 'white',
+                                    border: 'none',
+                                    fontWeight: 700,
+                                    fontSize: '15px',
+                                    cursor: loading ? 'not-allowed' : 'pointer',
+                                    marginTop: '8px',
+                                    transition: 'all 0.2s',
+                                    boxShadow: loading ? 'none' : '0 4px 16px rgba(99, 102, 241, 0.35)',
+                                    letterSpacing: '0.01em',
+                                }}
+                                onMouseOver={e => {
+                                    if (!loading) e.currentTarget.style.transform = 'translateY(-1px)';
+                                }}
+                                onMouseOut={e => {
+                                    e.currentTarget.style.transform = 'translateY(0)';
+                                }}
+                            >
+                                {loading ? (
+                                    <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                                        <span style={{
+                                            width: '16px', height: '16px',
+                                            border: '2px solid rgba(255,255,255,0.3)',
+                                            borderTopColor: 'white',
+                                            borderRadius: '50%',
+                                            display: 'inline-block',
+                                            animation: 'spin 0.7s linear infinite',
+                                        }} />
+                                        {isRegistering ? "Inscription..." : "Connexion..."}
+                                    </span>
+                                ) : (isRegistering ? "Créer un compte" : "Se connecter")}
+                            </button>
+
+                            {/* Toggle link */}
+                            <div style={{ textAlign: 'center', marginTop: '12px' }}>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setIsRegistering(!isRegistering);
+                                        setErrorMsg('');
+                                        setSuccessMsg('');
+                                    }}
+                                    style={{
+                                        background: 'none',
+                                        border: 'none',
+                                        color: '#818cf8',
+                                        fontSize: '13px',
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                        outline: 'none',
+                                    }}
+                                    onMouseOver={e => e.currentTarget.style.textDecoration = 'underline'}
+                                    onMouseOut={e => e.currentTarget.style.textDecoration = 'none'}
+                                >
+                                    {isRegistering ? "Déjà un compte ? Connectez-vous" : "Pas encore de compte ? S'inscrire"}
+                                </button>
+                            </div>
+                        </form>
+                    )}
 
                     {/* Footer note */}
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '6px',
+                        marginTop: '24px',
+                        color: isSupabaseConfigured ? '#34d399' : '#f59e0b',
+                        fontSize: '11.5px',
+                        fontWeight: 600,
+                        backgroundColor: 'rgba(15, 23, 42, 0.4)',
+                        padding: '8px 12px',
+                        borderRadius: '20px',
+                        border: '1px solid rgba(255, 255, 255, 0.04)',
+                    }}>
+                        {isSupabaseConfigured ? (
+                            <>
+                                <Database size={12} />
+                                <span>Base Supabase de Production active</span>
+                            </>
+                        ) : (
+                            <>
+                                <Sparkles size={12} />
+                                <span>Base Simulation Locale active</span>
+                            </>
+                        )}
+                    </div>
+
                     <p style={{
                         textAlign: 'center',
                         fontSize: '12px',
-                        color: '#334155',
-                        marginTop: '24px',
+                        color: '#64748b',
+                        marginTop: '20px',
                         lineHeight: 1.5,
+                        fontWeight: 500,
                     }}>
                         Accès réservé aux membres autorisés de l'organisation Adonaï.
                     </p>

@@ -132,3 +132,15 @@ export interface OrgRevenueSnapshot {
     total_commission_revenue: number;
     created_at: string;
 }
+
+export interface AgentPayout {
+    id: string;
+    agent_id: string;
+    amount: number;
+    paid_by: string;
+    created_at: string;
+    // Join fields
+    agent_name?: string;
+    paid_by_name?: string;
+}
+

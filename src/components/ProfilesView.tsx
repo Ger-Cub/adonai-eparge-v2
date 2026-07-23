@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import type { UserProfile, UserRole } from '../lib/types';
-import { UserPlus, Trash } from 'lucide-react';
+import { UserPlus, Trash, Eye, EyeOff } from 'lucide-react';
 
 interface ProfilesViewProps {
     profiles: UserProfile[];
@@ -24,6 +24,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({
     const [phone, setPhone] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
     const [targetRole, setTargetRole] = useState<UserRole>('agent');
     const [msg, setMsg] = useState({ text: '', type: '' });
 
@@ -47,17 +48,28 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({
     }, [currentUser, allowedRoles]);
 
     // Filters profiles depending on hierarchical rules
-    const visibleProfiles = profiles.filter(p => {
-        if (currentUser.role === 'super_admin' || currentUser.role === 'admin_principal') {
-            return true; // Sees all
+    const visibleProfiles = React.useMemo(() => {
+        const sourceProfiles = (profiles && profiles.length > 0)
+            ? profiles
+            : (currentUser ? [currentUser] : []);
+
+        const filtered = sourceProfiles.filter(p => {
+            if (currentUser.role === 'super_admin' || currentUser.role === 'admin_principal') {
+                return true; // Sees all
+            }
+            if (currentUser.role === 'supervisor') {
+                return p.id === currentUser.id || p.created_by === currentUser.id || p.role === 'agent';
+            }
+            return p.id === currentUser.id || p.id === currentUser.created_by;
+        });
+
+        // Ensure currentUser is always at least present in the list
+        if (currentUser && !filtered.some(p => p.id === currentUser.id)) {
+            filtered.unshift(currentUser);
         }
-        if (currentUser.role === 'supervisor') {
-            // Sees themselves, and agents created by them or supervised by them
-            return p.id === currentUser.id || p.created_by === currentUser.id || p.role === 'agent';
-        }
-        // Agent sees themselves, and their supervisor
-        return p.id === currentUser.id || p.id === currentUser.created_by;
-    });
+
+        return filtered;
+    }, [profiles, currentUser]);
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (!fullName || !phone) {
@@ -214,13 +226,38 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({
                                     </div>
                                     <div className="form-group">
                                         <label className="form-label">Mot de passe</label>
-                                        <input
-                                            type="password"
-                                            className="form-control"
-                                            placeholder="Min. 6 caractères"
-                                            value={password}
-                                            onChange={e => setPassword(e.target.value)}
-                                        />
+                                        <div style={{ position: 'relative' }}>
+                                            <input
+                                                type={showPassword ? "text" : "password"}
+                                                className="form-control"
+                                                placeholder="Min. 6 caractères"
+                                                value={password}
+                                                onChange={e => setPassword(e.target.value)}
+                                                style={{ paddingRight: '40px' }}
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowPassword(!showPassword)}
+                                                style={{
+                                                    position: 'absolute',
+                                                    right: '12px',
+                                                    top: '50%',
+                                                    transform: 'translateY(-50%)',
+                                                    background: 'none',
+                                                    border: 'none',
+                                                    color: 'var(--text-light)',
+                                                    cursor: 'pointer',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    padding: '4px',
+                                                    outline: 'none'
+                                                }}
+                                                title={showPassword ? "Cacher le mot de passe" : "Afficher le mot de passe"}
+                                            >
+                                                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             )}
@@ -254,7 +291,14 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({
                                 </tr>
                             </thead>
                             <tbody>
-                                {visibleProfiles.map(p => {
+                                {visibleProfiles.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={6} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-light)', fontWeight: 500 }}>
+                                            Aucun membre de l'organisation trouvé.
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    visibleProfiles.map(p => {
                                     const isSelf = p.id === currentUser.id;
                                     const canDelete = !isSelf && (
                                         (currentUser.role === 'super_admin' && p.role === 'admin_principal') ||
@@ -316,7 +360,8 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({
                                             </td>
                                         </tr>
                                     );
-                                })}
+                                })
+                                )}
                             </tbody>
                         </table>
                     </div>

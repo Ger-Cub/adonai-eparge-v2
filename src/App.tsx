@@ -7,7 +7,7 @@ import {
 import type {
   UserProfile, Client, SavingsCarnet,
   CarnetDeposit, WithdrawalRequest, LedgerEntry,
-  AgentMonthlyReward, OrgRevenueSnapshot, UserRole
+  AgentMonthlyReward, OrgRevenueSnapshot, UserRole, AgentPayout
 } from './lib/types';
 import { DashboardOverview } from './components/DashboardOverview';
 import { ProfilesView } from './components/ProfilesView';
@@ -17,13 +17,14 @@ import { CarnetsView } from './components/CarnetsView';
 import { WithdrawalsView } from './components/WithdrawalsView';
 import { LedgerView } from './components/LedgerView';
 import { StatisticsView } from './components/StatisticsView';
+import { PayrollView } from './components/PayrollView';
 import logoAdonai from './assets/logo-adonai.jpg';
 
 // Icons
 import {
   LayoutDashboard, Users, FolderHeart,
   ArrowUpDown, BookOpen, LogOut,
-  Moon, Sun, X, TrendingUp, Bell, Database
+  Moon, Sun, X, TrendingUp, Bell, Database, Banknote
 } from 'lucide-react';
 
 function App() {
@@ -41,6 +42,7 @@ function App() {
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
   const [rewards, setRewards] = useState<AgentMonthlyReward[]>([]);
   const [snapshots, setSnapshots] = useState<OrgRevenueSnapshot[]>([]);
+  const [payouts, setPayouts] = useState<AgentPayout[]>([]);
 
   // Navigation helpers
   const [selectedClientForNewCarnet, setSelectedClientForNewCarnet] = useState<Client | null>(null);
@@ -74,6 +76,25 @@ function App() {
     }
   ]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+
+  // Close notifications dropdown when clicking outside anywhere on document
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target && !target.closest('.notification-container')) {
+        setNotificationsOpen(false);
+      }
+    };
+
+    if (notificationsOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('touchstart', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+    };
+  }, [notificationsOpen]);
   const [activeToast, setActiveToast] = useState<{ 
     title: string; 
     message: string; 
@@ -195,7 +216,8 @@ function App() {
         loadedRequests,
         loadedLedger,
         loadedRewards,
-        loadedSnapshots
+        loadedSnapshots,
+        loadedPayouts
       ] = await Promise.all([
         dbSimulated.getProfiles(),
         dbSimulated.getClients(),
@@ -204,25 +226,33 @@ function App() {
         dbSimulated.getRequests(),
         dbSimulated.getLedger(),
         dbSimulated.getAgentMonthlyRewards(),
-        dbSimulated.getMonthlySnapshots()
+        dbSimulated.getMonthlySnapshots(),
+        dbSimulated.getAgentPayouts()
       ]);
+
+      // Payouts always fully loaded for admin (payout records are filtered server-side by RLS)
+      setPayouts(loadedPayouts);
+
+      // Ensure current user is present in allProfiles if list was initially empty
+      const allProfiles = (!loadedProfiles || loadedProfiles.length === 0) ? (user ? [user] : []) : loadedProfiles;
 
       // RLS Enforcement Simulation / Display Filtering
       if (user.role === 'super_admin' || user.role === 'admin_principal') {
-        setProfiles(loadedProfiles);
+        setProfiles(allProfiles);
         setClients(loadedClients);
         setCarnets(loadedCarnets);
         setRequests(loadedRequests);
         setLedger(loadedLedger);
       } else if (user.role === 'supervisor') {
-        const subAgents = loadedProfiles
-          .filter(p => p.role === 'agent' && p.created_by === user.id)
+        const subAgents = allProfiles
+          .filter(p => p.role === 'agent' && (p.created_by === user.id || p.id !== user.id))
           .map(p => p.id);
 
         const agentIds = [user.id, ...subAgents];
+        const filteredProfiles = allProfiles.filter(p => p.id === user.id || p.created_by === user.id || p.role === 'agent');
 
-        setProfiles(loadedProfiles.filter(p => p.id === user.id || p.created_by === user.id || p.role === 'agent'));
-        setClients(loadedClients.filter(c => agentIds.includes(c.created_by)));
+        setProfiles(filteredProfiles.length > 0 ? filteredProfiles : [user]);
+        setClients(loadedClients.filter(c => agentIds.includes(c.created_by) || c.created_by === user.id));
         setCarnets(loadedCarnets.filter(c => c.supervisor_id === user.id || agentIds.includes(c.agent_id)));
         setRequests(loadedRequests.filter(r => {
           const car = loadedCarnets.find(c => c.id === r.carnet_id);
@@ -230,7 +260,8 @@ function App() {
         }));
         setLedger(loadedLedger.filter(l => l.type !== 'org_gain'));
       } else if (user.role === 'agent') {
-        setProfiles(loadedProfiles.filter(p => p.id === user.id || p.id === user.created_by));
+        const filteredProfiles = allProfiles.filter(p => p.id === user.id || p.id === user.created_by);
+        setProfiles(filteredProfiles.length > 0 ? filteredProfiles : [user]);
         setClients(loadedClients.filter(c => c.created_by === user.id));
         setCarnets(loadedCarnets.filter(c => c.agent_id === user.id));
         setRequests(loadedRequests.filter(r => {
@@ -521,6 +552,23 @@ function App() {
     }
   };
 
+  const handlePayAgent = async (agentId: string, amount: number) => {
+    if (!currentUser) return;
+    const agent = profiles.find(p => p.id === agentId);
+    try {
+      await dbSimulated.createAgentPayout(agentId, amount, currentUser.id);
+      showNotification(
+        'Paie Effectuée ✓',
+        `${agent?.full_name || 'Agent'} a été rémunéré(e) de ${amount.toLocaleString('fr-FR')} FC. Fiche de paie en cours d'impression.`,
+        'success'
+      );
+      await refreshData();
+    } catch (err: any) {
+      showNotification('Erreur de paiement', err.message || 'Impossible d\'effectuer le paiement.', 'warning');
+      throw err; // rethrow so PayrollView can handle the loading state
+    }
+  };
+
   const handleQuickLinkNewCarnet = (client: Client) => {
     setSelectedClientForNewCarnet(client);
     setActiveTab('carnets');
@@ -596,6 +644,7 @@ function App() {
 
   if (currentUser.role === 'admin_principal' || currentUser.role === 'super_admin') {
     sidebarExtraItems.push({ id: 'stats', icon: <TrendingUp size={18} />, label: 'Statistiques' });
+    sidebarExtraItems.push({ id: 'payroll', icon: <Banknote size={18} />, label: 'Gestion de la Paie' });
   }
 
   const navigateTo = (id: string) => {
@@ -784,6 +833,15 @@ function App() {
           )}
           {activeTab === 'stats' && (
             <StatisticsView carnets={carnets} ledger={ledger} currentUser={currentUser} deposits={deposits} profiles={profiles} />
+          )}
+          {activeTab === 'payroll' && (
+            <PayrollView
+              ledger={ledger}
+              profiles={profiles}
+              payouts={payouts}
+              currentUser={currentUser}
+              onPayAgent={handlePayAgent}
+            />
           )}
         </div>
       </main>

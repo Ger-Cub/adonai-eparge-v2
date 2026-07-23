@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import logoAdonai from '../assets/logo-adonai.jpg';
-import { Mail, Lock, Sparkles, Database } from 'lucide-react';
+import { Mail, Lock, Sparkles, Database, Eye, EyeOff } from 'lucide-react';
 import type { UserRole } from '../lib/types';
 
 interface AuthScreenProps {
@@ -17,6 +17,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 }) => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const [errorMsg, setErrorMsg] = useState('');
     const [successMsg, setSuccessMsg] = useState('');
@@ -316,16 +317,38 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                                     </span>
                                     <input
                                         id="auth-password"
-                                        type="password"
+                                        type={showPassword ? "text" : "password"}
                                         placeholder="••••••••"
                                         value={password}
                                         onChange={e => setPassword(e.target.value)}
-                                        style={inputStyle}
+                                        style={{ ...inputStyle, paddingRight: '40px' }}
                                         onFocus={e => e.target.style.borderColor = 'rgba(99,102,241,0.6)'}
                                         onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
                                         required
                                         autoComplete="current-password"
                                     />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowPassword(!showPassword)}
+                                        style={{
+                                            position: 'absolute',
+                                            right: '12px',
+                                            top: '50%',
+                                            transform: 'translateY(-50%)',
+                                            background: 'none',
+                                            border: 'none',
+                                            color: '#64748b',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            padding: '4px',
+                                            outline: 'none'
+                                        }}
+                                        title={showPassword ? "Cacher le mot de passe" : "Afficher le mot de passe"}
+                                    >
+                                        {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                                    </button>
                                 </div>
                             </div>
 

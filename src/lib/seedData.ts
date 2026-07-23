@@ -326,7 +326,9 @@ export const MOCK_WITHDRAWALS = [
 ];
 
 export const MOCK_LEDGER: LedgerEntry[] = [
-    // Carnet creation fees (500 FC)
+    // ─── Carnet creation fees (500 FC) + commissions for all carnets ───
+
+    // car-001 (Alphonse Mweze, daily_mise = 1000 FC)
     {
         id: 'led-001',
         carnet_id: 'car-001',
@@ -337,6 +339,26 @@ export const MOCK_LEDGER: LedgerEntry[] = [
         created_at: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString()
     },
     {
+        id: 'led-001b',
+        carnet_id: 'car-001',
+        agent_id: 'usr-agent-001',
+        type: 'agent_gain',
+        amount: 500, // 50% of daily_mise 1000
+        description: 'Commission agent de terrain (50%) - Carnet CB-1004-9844',
+        created_at: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString()
+    },
+    {
+        id: 'led-001c',
+        carnet_id: 'car-001',
+        agent_id: undefined,
+        type: 'org_gain',
+        amount: 500, // 50% of daily_mise 1000
+        description: 'Commission organisation (50%) - Carnet CB-1004-9844',
+        created_at: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString()
+    },
+
+    // car-002 (Merveille Nabintu, daily_mise = 2000 FC)
+    {
         id: 'led-002',
         carnet_id: 'car-002',
         agent_id: 'usr-agent-001',
@@ -345,6 +367,26 @@ export const MOCK_LEDGER: LedgerEntry[] = [
         description: 'Frais de vente de carnet (Fixe 500 FC) - Carnet Numéro CB-2311-4509',
         created_at: new Date(Date.now() - 32 * 24 * 60 * 60 * 1000).toISOString()
     },
+    {
+        id: 'led-002b',
+        carnet_id: 'car-002',
+        agent_id: 'usr-agent-001',
+        type: 'agent_gain',
+        amount: 1000, // 50% of daily_mise 2000
+        description: 'Commission agent de terrain (50%) - Carnet CB-2311-4509',
+        created_at: new Date(Date.now() - 32 * 24 * 60 * 60 * 1000).toISOString()
+    },
+    {
+        id: 'led-002c',
+        carnet_id: 'car-002',
+        agent_id: undefined,
+        type: 'org_gain',
+        amount: 1000, // 50% of daily_mise 2000
+        description: 'Commission organisation (50%) - Carnet CB-2311-4509',
+        created_at: new Date(Date.now() - 32 * 24 * 60 * 60 * 1000).toISOString()
+    },
+
+    // car-003 (Bahati Shamavu, daily_mise = 5000 FC)
     {
         id: 'led-003',
         carnet_id: 'car-003',
@@ -355,6 +397,26 @@ export const MOCK_LEDGER: LedgerEntry[] = [
         created_at: new Date(Date.now() - 10 * 60 * 60 * 1000).toISOString()
     },
     {
+        id: 'led-003b',
+        carnet_id: 'car-003',
+        agent_id: 'usr-agent-002',
+        type: 'agent_gain',
+        amount: 2500, // 50% of daily_mise 5000
+        description: 'Commission agent de terrain (50%) - Carnet CB-8898-1002',
+        created_at: new Date(Date.now() - 10 * 60 * 60 * 1000).toISOString()
+    },
+    {
+        id: 'led-003c',
+        carnet_id: 'car-003',
+        agent_id: undefined,
+        type: 'org_gain',
+        amount: 2500, // 50% of daily_mise 5000
+        description: 'Commission organisation (50%) - Carnet CB-8898-1002',
+        created_at: new Date(Date.now() - 10 * 60 * 60 * 1000).toISOString()
+    },
+
+    // car-004 (Lucien Bolamba, daily_mise = 1000 FC, archived)
+    {
         id: 'led-004',
         carnet_id: 'car-004',
         agent_id: 'usr-agent-003',
@@ -363,25 +425,23 @@ export const MOCK_LEDGER: LedgerEntry[] = [
         description: 'Frais de vente de carnet (Fixe 500 FC) - Carnet Numéro CB-5601-2099',
         created_at: new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString()
     },
-
-    // Withdrawal divisions of car-004 (Lucien Bolamba, daily_mise = 1000 FC)
-    // Split: 50% agent (500 FC), 50% organisation (500 FC)
     {
-        id: 'led-005',
+        id: 'led-004b',
         carnet_id: 'car-004',
         agent_id: 'usr-agent-003',
         type: 'agent_gain',
-        amount: 500,
-        description: 'Commission agent de terrain (50%) - Carnet car-004',
-        created_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString()
+        amount: 500, // 50% of daily_mise 1000 — recorded at carnet creation
+        description: 'Commission agent de terrain (50%) - Carnet CB-5601-2099',
+        created_at: new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString()
     },
     {
-        id: 'led-006',
+        id: 'led-004c',
         carnet_id: 'car-004',
         agent_id: undefined,
         type: 'org_gain',
-        amount: 500,
-        description: 'Commission organisation (50%) - Carnet car-004',
-        created_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString()
+        amount: 500, // 50% of daily_mise 1000 — recorded at carnet creation
+        description: 'Commission organisation (50%) - Carnet CB-5601-2099',
+        created_at: new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString()
     }
 ];
+

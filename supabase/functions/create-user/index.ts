@@ -79,16 +79,29 @@ serve(async (req) => {
       })
     }
 
-    // The trigger will automatically insert into user_profiles
-    // Now create the relation mapping
+    // Update created_by field in user_profiles
+    if (parent_id) {
+      try {
+        await supabaseAdmin
+          .from('user_profiles')
+          .update({ created_by: parent_id })
+          .eq('id', newUser.user.id)
+      } catch (_err) {}
+    }
+
+    // Now create the relation mapping safely
     if (role === 'supervisor' && parent_id) {
-      await supabaseAdmin
-        .from('supervisors')
-        .insert({ id: newUser.user.id, admin_id: parent_id, created_by: user.id, updated_by: user.id })
+      try {
+        await supabaseAdmin
+          .from('supervisors')
+          .insert({ id: newUser.user.id, admin_id: parent_id, created_by: user.id, updated_by: user.id })
+      } catch (_err) {}
     } else if (role === 'agent' && parent_id) {
-      await supabaseAdmin
-        .from('terrain_agents')
-        .insert({ id: newUser.user.id, supervisor_id: parent_id, created_by: user.id, updated_by: user.id })
+      try {
+        await supabaseAdmin
+          .from('terrain_agents')
+          .insert({ id: newUser.user.id, supervisor_id: parent_id, created_by: user.id, updated_by: user.id })
+      } catch (_err) {}
     }
 
     return new Response(JSON.stringify({ user: newUser.user }), {

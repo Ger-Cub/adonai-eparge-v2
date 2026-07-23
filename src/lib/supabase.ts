@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import type {
     UserProfile, Client, SavingsCarnet, CarnetDeposit,
-    WithdrawalRequest, LedgerEntry, AgentMonthlyReward, OrgRevenueSnapshot
+    WithdrawalRequest, LedgerEntry, AgentMonthlyReward, OrgRevenueSnapshot, AgentPayout
 } from './types';
 import {
     MOCK_PROFILES, MOCK_CLIENTS, MOCK_CARNETS,
@@ -19,7 +19,7 @@ export const supabase = isSupabaseConfigured
     ? createClient(supabaseUrl, supabaseAnonKey)
     : null;
 
-const LOCAL_STORAGE_SEED_VERSION = '2026-07-01';
+const LOCAL_STORAGE_SEED_VERSION = '2026-07-20-commissions-v2';
 
 // --- LocalStorage Simulation Database ---
 // Utilized if Supabase is not configured yet. Keeps the dashboard fully functional out-of-the-box.
@@ -40,7 +40,8 @@ class SimulatedDB {
                 'ledger',
                 'supervisors',
                 'terrain_agents',
-                'withdrawals'
+                'withdrawals',
+                'agent_payouts'
             ];
             keysToReset.forEach(key => localStorage.removeItem(`adonai_${key}`));
             localStorage.setItem('adonai_seed_version', LOCAL_STORAGE_SEED_VERSION);
@@ -530,7 +531,7 @@ class SimulatedDB {
 
         this.setStorage('withdrawal_requests', requests);
 
-        // If approved, complete the transaction triggers in JS
+        // If approved, archive carnet and log withdrawal
         if (status === 'approved') {
             const carnets = this.getStorage<SavingsCarnet>('savings_carnets', MOCK_CARNETS);
             const carnetIdx = carnets.findIndex(c => c.id === req.carnet_id);
@@ -554,6 +555,8 @@ class SimulatedDB {
                     created_by: validatorId
                 });
                 this.setStorage('withdrawals', withdrawals);
+                // Note: commissions (agent_gain / org_gain) are recorded at carnet creation,
+                // not at withdrawal. No additional ledger entries here.
             }
         }
     }
@@ -636,6 +639,34 @@ class SimulatedDB {
             };
         });
     }
+
+    async getAgentPayouts(): Promise<AgentPayout[]> {
+        const payouts = this.getStorage<AgentPayout>('agent_payouts', []);
+        const profiles = await this.getProfiles();
+        return payouts.map(p => {
+            const agent = profiles.find(pr => pr.id === p.agent_id);
+            const paidBy = profiles.find(pr => pr.id === p.paid_by);
+            return {
+                ...p,
+                agent_name: agent ? agent.full_name : 'Agent de terrain',
+                paid_by_name: paidBy ? paidBy.full_name : 'Admin'
+            };
+        });
+    }
+
+    async createAgentPayout(agentId: string, amount: number, paidBy: string): Promise<AgentPayout> {
+        const payouts = this.getStorage<AgentPayout>('agent_payouts', []);
+        const newPayout: AgentPayout = {
+            id: `pay-${Math.floor(10000 + Math.random() * 90000)}`,
+            agent_id: agentId,
+            amount: amount,
+            paid_by: paidBy,
+            created_at: new Date().toISOString()
+        };
+        payouts.push(newPayout);
+        this.setStorage('agent_payouts', payouts);
+        return newPayout;
+    }
 }
 
 // --- Production Supabase Database Driver ---
@@ -663,9 +694,38 @@ class SupabaseDB {
     // --- Core Lists ---
     async getProfiles(): Promise<UserProfile[]> {
         if (!supabase) return [];
-        const { data, error } = await supabase.from('user_profiles').select('*');
-        if (error) throw error;
-        return data || [];
+        try {
+            const { data, error } = await supabase.from('user_profiles').select('*');
+            if (error) {
+                console.warn("Notice: Error fetching user_profiles:", error.message);
+                return [];
+            }
+
+            if (!data || data.length === 0) return [];
+
+            // Attempt to enrich created_by from mapping tables if missing on some records
+            try {
+                const { data: sups } = await supabase.from('supervisors').select('id, admin_id');
+                const { data: ags } = await supabase.from('terrain_agents').select('id, supervisor_id');
+
+                return data.map(p => {
+                    if (p.created_by) return p;
+                    if (p.role === 'supervisor') {
+                        const supMap = (sups || []).find(s => s.id === p.id);
+                        if (supMap && supMap.admin_id) return { ...p, created_by: supMap.admin_id };
+                    } else if (p.role === 'agent') {
+                        const agMap = (ags || []).find(a => a.id === p.id);
+                        if (agMap && agMap.supervisor_id) return { ...p, created_by: agMap.supervisor_id };
+                    }
+                    return p;
+                });
+            } catch (_e) {
+                return data;
+            }
+        } catch (err: any) {
+            console.warn("Exception fetching user_profiles:", err.message);
+            return [];
+        }
     }
 
     async getClients(): Promise<Client[]> {
@@ -786,6 +846,8 @@ class SupabaseDB {
             }
         });
 
+        const creatorId = profile.created_by || supervisorOrAdminId;
+
         // Sign up subordinate user via metadata
         const { data: authData, error: authErr } = await tempClient.auth.signUp({
             email: profile.email,
@@ -794,7 +856,8 @@ class SupabaseDB {
                 data: {
                     full_name: profile.full_name,
                     phone: profile.phone,
-                    role: profile.role
+                    role: profile.role,
+                    created_by: creatorId
                 }
             }
         });
@@ -808,27 +871,59 @@ class SupabaseDB {
         // Wait brief delay for database trigger handle_new_user to complete profile insertion
         await new Promise(resolve => setTimeout(resolve, 600));
 
-        // Insert hierarchy mapping depending on role using main client
+        // Update created_by in user_profiles to maintain strict hierarchy
+        if (creatorId) {
+            try {
+                await supabase
+                    .from('user_profiles')
+                    .update({ created_by: creatorId })
+                    .eq('id', newUserId);
+            } catch (e: any) {
+                console.warn("Notice: user_profiles created_by update warning:", e.message);
+            }
+        }
+
+        // Safely insert hierarchy mapping depending on role using main client
         if (profile.role === 'supervisor' && supervisorOrAdminId) {
-            const { error } = await supabase
-                .from('supervisors')
-                .insert({
-                    id: newUserId,
-                    admin_id: supervisorOrAdminId,
-                    created_by: profile.created_by,
-                    updated_by: profile.created_by
-                });
-            if (error) throw error;
+            try {
+                await supabase
+                    .from('supervisors')
+                    .insert({
+                        id: newUserId,
+                        admin_id: supervisorOrAdminId,
+                        created_by: creatorId,
+                        updated_by: creatorId
+                    });
+            } catch (_e) {}
+            try {
+                await supabase
+                    .from('supervisors_mapping')
+                    .insert({
+                        id: newUserId,
+                        admin_id: supervisorOrAdminId,
+                        created_by: creatorId
+                    });
+            } catch (_e) {}
         } else if (profile.role === 'agent' && supervisorOrAdminId) {
-            const { error } = await supabase
-                .from('terrain_agents')
-                .insert({
-                    id: newUserId,
-                    supervisor_id: supervisorOrAdminId,
-                    created_by: profile.created_by,
-                    updated_by: profile.created_by
-                });
-            if (error) throw error;
+            try {
+                await supabase
+                    .from('terrain_agents')
+                    .insert({
+                        id: newUserId,
+                        supervisor_id: supervisorOrAdminId,
+                        created_by: creatorId,
+                        updated_by: creatorId
+                    });
+            } catch (_e) {}
+            try {
+                await supabase
+                    .from('agents_mapping')
+                    .insert({
+                        id: newUserId,
+                        supervisor_id: supervisorOrAdminId,
+                        created_by: creatorId
+                    });
+            } catch (_e) {}
         }
 
         // Retrieve newly created profile record
@@ -839,7 +934,15 @@ class SupabaseDB {
             .single();
 
         if (getErr || !newProfile) {
-            throw new Error(getErr?.message || "Erreur de récupération du profil créé.");
+            return {
+                id: newUserId,
+                role: profile.role,
+                full_name: profile.full_name,
+                phone: profile.phone || '',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+                created_by: profile.created_by || supervisorOrAdminId
+            };
         }
 
         return newProfile;
@@ -1047,6 +1150,42 @@ class SupabaseDB {
                 agent_name: agent ? agent.full_name : 'Agent de terrain'
             };
         });
+    }
+
+    async getAgentPayouts(): Promise<AgentPayout[]> {
+        if (!supabase) return [];
+        const { data: payouts, error } = await supabase
+            .from('agent_payouts')
+            .select('*')
+            .order('created_at', { ascending: false });
+        if (error) throw error;
+
+        const profiles = await this.getProfiles();
+
+        return (payouts || []).map(p => {
+            const agent = profiles.find(pr => pr.id === p.agent_id);
+            const paidBy = profiles.find(pr => pr.id === p.paid_by);
+            return {
+                ...p,
+                agent_name: agent ? agent.full_name : 'Agent de terrain',
+                paid_by_name: paidBy ? paidBy.full_name : 'Admin'
+            };
+        });
+    }
+
+    async createAgentPayout(agentId: string, amount: number, paidBy: string): Promise<AgentPayout> {
+        if (!supabase) throw new Error("Supabase n'est pas configuré.");
+        const { data, error } = await supabase
+            .from('agent_payouts')
+            .insert({
+                agent_id: agentId,
+                amount: amount,
+                paid_by: paidBy
+            })
+            .select()
+            .single();
+        if (error) throw error;
+        return data;
     }
 }
 

@@ -54,12 +54,17 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({
             : (currentUser ? [currentUser] : []);
 
         const filtered = sourceProfiles.filter(p => {
-            if (currentUser.role === 'super_admin' || currentUser.role === 'admin_principal') {
-                return true; // Sees all
+            if (currentUser.role === 'super_admin') {
+                return true; // Super Admin sees everyone
+            }
+            if (currentUser.role === 'admin_principal') {
+                return p.role !== 'super_admin'; // Admin Principal sees everyone except Super Admin
             }
             if (currentUser.role === 'supervisor') {
-                return p.id === currentUser.id || p.created_by === currentUser.id || p.role === 'agent';
+                // Supervisor sees themselves and agents created by them
+                return p.id === currentUser.id || (p.role === 'agent' && p.created_by === currentUser.id);
             }
+            // Agent sees themselves, and their supervisor
             return p.id === currentUser.id || p.id === currentUser.created_by;
         });
 

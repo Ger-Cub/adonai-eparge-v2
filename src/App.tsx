@@ -240,19 +240,27 @@ function App() {
       }
 
       // RLS Enforcement Simulation / Display Filtering
-      if (user.role === 'super_admin' || user.role === 'admin_principal') {
+      if (user.role === 'super_admin') {
         setProfiles(allProfiles);
         setClients(loadedClients);
         setCarnets(loadedCarnets);
         setRequests(loadedRequests);
         setLedger(loadedLedger);
+      } else if (user.role === 'admin_principal') {
+        // Admin Principal sees everyone EXCEPT super_admin
+        setProfiles(allProfiles.filter(p => p.role !== 'super_admin'));
+        setClients(loadedClients);
+        setCarnets(loadedCarnets);
+        setRequests(loadedRequests);
+        setLedger(loadedLedger);
       } else if (user.role === 'supervisor') {
+        // Supervisor sees themselves and agents created by them
         const subAgents = allProfiles
-          .filter(p => p.role === 'agent' && (p.created_by === user.id || p.id !== user.id))
+          .filter(p => p.role === 'agent' && (p.created_by === user.id))
           .map(p => p.id);
 
         const agentIds = [user.id, ...subAgents];
-        const filteredProfiles = allProfiles.filter(p => p.id === user.id || p.created_by === user.id || p.role === 'agent');
+        const filteredProfiles = allProfiles.filter(p => p.id === user.id || (p.role === 'agent' && p.created_by === user.id));
 
         setProfiles(filteredProfiles.length > 0 ? filteredProfiles : [user]);
         setClients(loadedClients.filter(c => agentIds.includes(c.created_by) || c.created_by === user.id));

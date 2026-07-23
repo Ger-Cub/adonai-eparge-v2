@@ -233,8 +233,11 @@ function App() {
       // Payouts always fully loaded for admin (payout records are filtered server-side by RLS)
       setPayouts(loadedPayouts);
 
-      // Ensure current user is present in allProfiles if list was initially empty
-      const allProfiles = (!loadedProfiles || loadedProfiles.length === 0) ? (user ? [user] : []) : loadedProfiles;
+      // Ensure current user is present in allProfiles
+      let allProfiles = loadedProfiles || [];
+      if (user && !allProfiles.some(p => p.id === user.id)) {
+        allProfiles = [user, ...allProfiles];
+      }
 
       // RLS Enforcement Simulation / Display Filtering
       if (user.role === 'super_admin' || user.role === 'admin_principal') {

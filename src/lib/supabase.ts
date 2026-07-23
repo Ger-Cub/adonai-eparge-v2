@@ -851,11 +851,16 @@ class SupabaseDB {
 
         const creatorId = profile.created_by || supervisorOrAdminId;
 
+        const siteUrl = (typeof window !== 'undefined' && window.location.hostname !== 'localhost')
+            ? window.location.origin
+            : 'https://adonai-eparge-v2.vercel.app';
+
         // Sign up subordinate user via metadata
         const { data: authData, error: authErr } = await tempClient.auth.signUp({
             email: profile.email,
             password: profile.password,
             options: {
+                emailRedirectTo: siteUrl,
                 data: {
                     full_name: profile.full_name,
                     phone: profile.phone,

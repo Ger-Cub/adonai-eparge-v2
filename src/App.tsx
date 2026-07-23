@@ -591,10 +591,15 @@ function App() {
 
   const handleSignup = async (email: string, password: string, fullName: string, phone: string, role: UserRole) => {
     if (!supabase) return;
+    const siteUrl = (typeof window !== 'undefined' && window.location.hostname !== 'localhost')
+      ? window.location.origin
+      : 'https://adonai-eparge-v2.vercel.app';
+
     const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
+        emailRedirectTo: siteUrl,
         data: {
           full_name: fullName,
           phone: phone,

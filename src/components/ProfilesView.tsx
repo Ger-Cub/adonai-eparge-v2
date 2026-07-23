@@ -343,7 +343,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({
                                                     {getRoleLabel(p.role)}
                                                 </span>
                                             </td>
-                                            <td><code style={{ fontSize: '11px' }}>{p.id}</code></td>
+                                            <td><code style={{ fontSize: '11px', fontWeight: 600, color: 'var(--primary)' }}>{p.readable_id || (p.id.startsWith('usr-') ? p.id : `usr-${p.role === 'admin_principal' ? 'admin' : p.role}-${p.id.substring(0, 4)}`)}</code></td>
                                             <td>{new Date(p.created_at).toLocaleDateString()}</td>
                                             <td style={{ textAlign: 'right' }}>
                                                 {canDelete ? (

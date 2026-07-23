@@ -178,10 +178,13 @@ class SimulatedDB {
     ): Promise<UserProfile> {
         const profiles = await this.getProfiles();
         const newId = `usr-${profile.role}-${Math.floor(1000 + Math.random() * 9000)}`;
+        const existingRoleCount = profiles.filter(p => p.role === profile.role).length + 1;
+        const readableId = `usr-${profile.role === 'admin_principal' ? 'admin' : profile.role}-${String(existingRoleCount).padStart(3, '0')}`;
 
         const newProfile: UserProfile = {
             ...profile,
             id: newId,
+            readable_id: profile.readable_id || readableId,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         };

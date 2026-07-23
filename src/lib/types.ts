@@ -5,6 +5,7 @@ export type WithdrawalRequestStatus = 'pending' | 'approved' | 'rejected';
 
 export interface UserProfile {
     id: string;
+    readable_id?: string;
     role: UserRole;
     full_name: string;
     phone: string;

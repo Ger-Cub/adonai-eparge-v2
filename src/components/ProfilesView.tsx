@@ -61,11 +61,17 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({
                 return p.role !== 'super_admin'; // Admin Principal sees everyone except Super Admin
             }
             if (currentUser.role === 'supervisor') {
-                // Supervisor sees themselves and agents created by them
-                return p.id === currentUser.id || (p.role === 'agent' && p.created_by === currentUser.id);
+                // Supervisor sees themselves and agents created/supervised by them
+                const isMyAgent = p.role === 'agent' && (
+                    p.created_by === currentUser.id || 
+                    (currentUser.readable_id && p.created_by === currentUser.readable_id)
+                );
+                return p.id === currentUser.id || isMyAgent;
             }
             // Agent sees themselves, and their supervisor
-            return p.id === currentUser.id || p.id === currentUser.created_by;
+            const isMySupervisor = p.id === currentUser.created_by || 
+                (currentUser.created_by && p.readable_id === currentUser.created_by);
+            return p.id === currentUser.id || isMySupervisor;
         });
 
         // Ensure currentUser is always at least present in the list

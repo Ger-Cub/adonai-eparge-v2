@@ -181,10 +181,13 @@ class SimulatedDB {
         const existingRoleCount = profiles.filter(p => p.role === profile.role).length + 1;
         const readableId = `usr-${profile.role === 'admin_principal' ? 'admin' : profile.role}-${String(existingRoleCount).padStart(3, '0')}`;
 
+        const creatorId = profile.created_by || supervisorOrAdminId;
+
         const newProfile: UserProfile = {
             ...profile,
             id: newId,
             readable_id: profile.readable_id || readableId,
+            created_by: creatorId,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         };
@@ -708,17 +711,26 @@ class SupabaseDB {
 
             // Attempt to enrich created_by from mapping tables if missing on some records
             try {
-                const { data: sups } = await supabase.from('supervisors').select('id, admin_id');
-                const { data: ags } = await supabase.from('terrain_agents').select('id, supervisor_id');
+                const [
+                    { data: sups },
+                    { data: ags },
+                    { data: supsMap },
+                    { data: agsMap }
+                ] = await Promise.all([
+                    supabase.from('supervisors').select('id, admin_id'),
+                    supabase.from('terrain_agents').select('id, supervisor_id'),
+                    supabase.from('supervisors_mapping').select('id, admin_id'),
+                    supabase.from('agents_mapping').select('id, supervisor_id')
+                ]);
 
                 return data.map(p => {
                     if (p.created_by) return p;
                     if (p.role === 'supervisor') {
-                        const supMap = (sups || []).find(s => s.id === p.id);
-                        if (supMap && supMap.admin_id) return { ...p, created_by: supMap.admin_id };
+                        const sup = (sups || []).find(s => s.id === p.id) || (supsMap || []).find(s => s.id === p.id);
+                        if (sup && sup.admin_id) return { ...p, created_by: sup.admin_id };
                     } else if (p.role === 'agent') {
-                        const agMap = (ags || []).find(a => a.id === p.id);
-                        if (agMap && agMap.supervisor_id) return { ...p, created_by: agMap.supervisor_id };
+                        const ag = (ags || []).find(a => a.id === p.id) || (agsMap || []).find(a => a.id === p.id);
+                        if (ag && ag.supervisor_id) return { ...p, created_by: ag.supervisor_id };
                     }
                     return p;
                 });
@@ -1139,46 +1151,67 @@ class SupabaseDB {
     // Reports calculated server-side or dynamically
     async getMonthlySnapshots(): Promise<OrgRevenueSnapshot[]> {
         if (!supabase) return [];
-        const { data, error } = await supabase.from('org_revenue_snapshots').select('*').order('year', { ascending: false }).order('month', { ascending: false });
-        if (error) throw error;
-        return data || [];
+        try {
+            const { data, error } = await supabase.from('org_revenue_snapshots').select('*').order('year', { ascending: false }).order('month', { ascending: false });
+            if (error) {
+                console.warn("Notice: org_revenue_snapshots table query notice:", error.message);
+                return [];
+            }
+            return data || [];
+        } catch (_err) {
+            return [];
+        }
     }
 
     async getAgentMonthlyRewards(): Promise<AgentMonthlyReward[]> {
         if (!supabase) return [];
-        const { data: rewards, error } = await supabase.from('agent_monthly_rewards').select('*').order('year', { ascending: false }).order('month', { ascending: false });
-        if (error) throw error;
+        try {
+            const { data: rewards, error } = await supabase.from('agent_monthly_rewards').select('*').order('year', { ascending: false }).order('month', { ascending: false });
+            if (error) {
+                console.warn("Notice: agent_monthly_rewards table query notice:", error.message);
+                return [];
+            }
 
-        const profiles = await this.getProfiles();
+            const profiles = await this.getProfiles();
 
-        return (rewards || []).map(rew => {
-            const agent = profiles.find(p => p.id === rew.agent_id);
-            return {
-                ...rew,
-                agent_name: agent ? agent.full_name : 'Agent de terrain'
-            };
-        });
+            return (rewards || []).map(rew => {
+                const agent = profiles.find(p => p.id === rew.agent_id);
+                return {
+                    ...rew,
+                    agent_name: agent ? agent.full_name : 'Agent de terrain'
+                };
+            });
+        } catch (_err) {
+            return [];
+        }
     }
 
     async getAgentPayouts(): Promise<AgentPayout[]> {
         if (!supabase) return [];
-        const { data: payouts, error } = await supabase
-            .from('agent_payouts')
-            .select('*')
-            .order('created_at', { ascending: false });
-        if (error) throw error;
+        try {
+            const { data: payouts, error } = await supabase
+                .from('agent_payouts')
+                .select('*')
+                .order('created_at', { ascending: false });
+            if (error) {
+                console.warn("Notice: agent_payouts table query notice:", error.message);
+                return [];
+            }
 
-        const profiles = await this.getProfiles();
+            const profiles = await this.getProfiles();
 
-        return (payouts || []).map(p => {
-            const agent = profiles.find(pr => pr.id === p.agent_id);
-            const paidBy = profiles.find(pr => pr.id === p.paid_by);
-            return {
-                ...p,
-                agent_name: agent ? agent.full_name : 'Agent de terrain',
-                paid_by_name: paidBy ? paidBy.full_name : 'Admin'
-            };
-        });
+            return (payouts || []).map(p => {
+                const agent = profiles.find(pr => pr.id === p.agent_id);
+                const paidBy = profiles.find(pr => pr.id === p.paid_by);
+                return {
+                    ...p,
+                    agent_name: agent ? agent.full_name : 'Agent de terrain',
+                    paid_by_name: paidBy ? paidBy.full_name : 'Admin'
+                };
+            });
+        } catch (_err) {
+            return [];
+        }
     }
 
     async createAgentPayout(agentId: string, amount: number, paidBy: string): Promise<AgentPayout> {

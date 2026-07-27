@@ -1,8 +1,8 @@
 import React from 'react';
-import type { SavingsCarnet, UserProfile, LedgerEntry, CarnetDeposit } from '../lib/types';
+import type { SavingsCarnet, UserProfile, LedgerEntry, CarnetDeposit, Client, UserRole } from '../lib/types';
 import {
     FolderCheck, Lock, Archive,
-    TrendingUp, Award, CalendarDays
+    TrendingUp, Award, CalendarDays, Users, UserCheck
 } from 'lucide-react';
 
 interface StatsProps {
@@ -10,13 +10,17 @@ interface StatsProps {
     ledger: LedgerEntry[];
     currentUser: UserProfile;
     deposits?: CarnetDeposit[];
+    profiles?: UserProfile[];
+    clients?: Client[];
 }
 
 export const DashboardOverview: React.FC<StatsProps> = ({ 
     carnets, 
     ledger, 
     currentUser,
-    deposits = []
+    deposits = [],
+    profiles = [],
+    clients = []
 }) => {
     // Terminology translations:
     // "Carnets Verrouillés" -> "Carnets remplis"
@@ -53,6 +57,33 @@ export const DashboardOverview: React.FC<StatsProps> = ({
         .reduce((sum, l) => sum + l.amount, 0);
 
     const totalOrgRevenue = salesRevenue + orgCommission;
+
+    // Filter lower hierarchy subordinates to display on higher hierarchy user dashboards
+    const getSubordinateProfiles = (): UserProfile[] => {
+        if (currentUser.role === 'super_admin') {
+            return profiles.filter(p => p.id !== currentUser.id && p.role !== 'super_admin');
+        } else if (currentUser.role === 'admin_principal') {
+            return profiles.filter(p => p.id !== currentUser.id && (p.role === 'supervisor' || p.role === 'agent'));
+        } else if (currentUser.role === 'supervisor') {
+            return profiles.filter(p => p.id !== currentUser.id && p.role === 'agent' && (
+                p.created_by === currentUser.id || 
+                (currentUser.readable_id && p.created_by === currentUser.readable_id) ||
+                carnets.some(c => c.supervisor_id === currentUser.id && c.agent_id === p.id)
+            ));
+        }
+        return [];
+    };
+
+    const subordinates = getSubordinateProfiles();
+
+    const getRoleLabel = (role: UserRole) => {
+        switch (role) {
+            case 'super_admin': return 'Super Admin';
+            case 'admin_principal': return 'Admin Principal';
+            case 'supervisor': return 'Superviseur';
+            case 'agent': return 'Agent de Terrain';
+        }
+    };
 
     return (
         <div>
@@ -146,6 +177,82 @@ export const DashboardOverview: React.FC<StatsProps> = ({
                 )}
             </div>
 
+            {/* ── Table des Utilisateurs de Hiérarchie Inférieure (Visuelle pour Superviseur et Admin) ── */}
+            {currentUser.role !== 'agent' && (
+                <div className="panel" style={{ marginTop: '24px' }}>
+                    <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <h3 className="panel-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <Users size={18} style={{ color: 'var(--primary)' }} />
+                            {currentUser.role === 'supervisor' ? "Agents sous votre Supervision" : "Équipe & Subordonnés Hiérarchiques"}
+                        </h3>
+                        <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--primary)', backgroundColor: 'var(--primary-light)', padding: '4px 10px', borderRadius: '12px' }}>
+                            {subordinates.length} membre{subordinates.length > 1 ? 's' : ''}
+                        </span>
+                    </div>
+                    <div className="panel-body" style={{ padding: 0 }}>
+                        {subordinates.length === 0 ? (
+                            <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-light)', fontSize: '13px' }}>
+                                Aucun utilisateur de hiérarchie inférieure trouvé.
+                            </div>
+                        ) : (
+                            <div style={{ overflowX: 'auto' }}>
+                                <table className="responsive-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Membre</th>
+                                            <th>Rôle</th>
+                                            <th>Téléphone</th>
+                                            <th>Clients Créés</th>
+                                            <th>Carnets Gérés</th>
+                                            <th>Collecte Totale</th>
+                                            <th>Statut</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {subordinates.map(sub => {
+                                            const subClients = clients.filter(c => c.created_by === sub.id || (sub.readable_id && c.created_by === sub.readable_id));
+                                            const subCarnets = carnets.filter(c => c.agent_id === sub.id || c.supervisor_id === sub.id || c.created_by === sub.id);
+                                            const subDeposits = deposits.filter(d => d.created_by === sub.id || subCarnets.some(c => c.id === d.carnet_id));
+                                            const totalCollected = subDeposits.reduce((sum, d) => sum + d.amount, 0);
+
+                                            return (
+                                                <tr key={sub.id}>
+                                                    <td>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                            <div className="user-avatar" style={{ width: '32px', height: '32px', fontSize: '12px', margin: 0, backgroundColor: 'var(--primary-light)', color: 'var(--primary)' }}>
+                                                                {sub.full_name.charAt(0)}
+                                                            </div>
+                                                            <div>
+                                                                <div style={{ fontWeight: 600, color: 'var(--text-dark)' }}>{sub.full_name}</div>
+                                                                <span style={{ fontSize: '10px', color: 'var(--text-light)' }}>{sub.readable_id || sub.id}</span>
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                    <td>
+                                                        <span className={`badge ${sub.role === 'admin_principal' ? 'badge-primary' : sub.role === 'supervisor' ? 'badge-locked' : 'badge-active'}`}>
+                                                            {getRoleLabel(sub.role)}
+                                                        </span>
+                                                    </td>
+                                                    <td style={{ fontSize: '13px' }}>{sub.phone || 'N/A'}</td>
+                                                    <td style={{ fontWeight: 700, color: 'var(--text-dark)' }}>{subClients.length}</td>
+                                                    <td style={{ fontWeight: 700, color: 'var(--primary)' }}>{subCarnets.length}</td>
+                                                    <td style={{ fontWeight: 700, color: 'var(--success-color)' }}>{totalCollected.toLocaleString()} FC</td>
+                                                    <td>
+                                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#047857', fontWeight: 600, backgroundColor: 'var(--success-bg)', padding: '2px 8px', borderRadius: '10px' }}>
+                                                            <UserCheck size={12} /> Actif
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
             <div className="panel" style={{ marginTop: '24px' }}>
                 <div className="panel-header">
                     <h3 className="panel-title">Règles Métiers et Formules</h3>
@@ -171,3 +278,4 @@ export const DashboardOverview: React.FC<StatsProps> = ({
         </div>
     );
 };
+

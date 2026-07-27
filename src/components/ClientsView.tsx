@@ -10,12 +10,12 @@ interface ClientsViewProps {
     onCreateClient: (
         client: Omit<Client, 'id' | 'created_at' | 'updated_at'>,
         carnetData?: { daily_mise: number; first_deposit: number }
-    ) => void;
+    ) => Promise<void>;
     onSelectClientForCarnet?: (client: Client) => void;
     onCreateCarnet?: (
         carnet: Omit<SavingsCarnet, 'id' | 'carnet_number' | 'supervisor_id' | 'status' | 'created_at' | 'updated_at'>,
         firstDeposit: number
-    ) => void;
+    ) => Promise<void>;
 }
 
 export const ClientsView: React.FC<ClientsViewProps> = ({
@@ -33,6 +33,8 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
     const [photo, setPhoto] = useState<string | undefined>(undefined);
     const [searchQuery, setSearchQuery] = useState('');
     const [msg, setMsg] = useState('');
+    const [formError, setFormError] = useState('');
+    const [isSubmitting, setIsSubmitting] = useState(false);
     const [mobileFormOpen, setMobileFormOpen] = useState(false);
 
     // Combined Carnet fields
@@ -71,10 +73,10 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
         }
     };
 
-    const handleCreate = (e: React.FormEvent) => {
+    const handleCreate = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!name || !phone || !address) {
-            alert('Veuillez remplir tous les champs obligatoires.');
+            setFormError('Veuillez remplir tous les champs obligatoires.');
             return;
         }
 
@@ -83,39 +85,49 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
             const m = Number(dailyMise);
             const d = Number(firstDeposit);
             if (m <= 0 || d <= 0) {
-                alert('La mise et le premier dépôt doivent être supérieurs à 0.');
+                setFormError('La mise et le premier dépôt doivent être supérieurs à 0.');
                 return;
             }
             const k = d / m;
             if (k !== Math.floor(k)) {
-                alert(`Le premier dépôt (${d} FC) doit être un multiple de la mise journalière (${m} FC).`);
+                setFormError(`Le premier dépôt (${d} FC) doit être un multiple de la mise journalière (${m} FC).`);
                 return;
             }
             carnetDataOpt = { daily_mise: m, first_deposit: d };
         }
 
-        onCreateClient({
-            name,
-            phone,
-            address,
-            photo,
-            created_by: currentUser.id,
-            updated_by: currentUser.id
-        }, carnetDataOpt);
+        setIsSubmitting(true);
+        setFormError('');
 
-        setName('');
-        setPhone('');
-        setAddress('');
-        setPhoto(undefined);
-        setCreateCarnetToo(false);
-        setDailyMise('1000');
-        setFirstDeposit('1000');
-        setMsg(createCarnetToo ? 'Client enregistré et carnet ouvert avec succès.' : 'Client enregistré avec succès.');
-        setMobileFormOpen(false);
-        setTimeout(() => setMsg(''), 4000);
+        try {
+            await onCreateClient({
+                name,
+                phone,
+                address,
+                photo,
+                created_by: currentUser.id,
+                updated_by: currentUser.id
+            }, carnetDataOpt);
+
+            // Only reset form and show success AFTER confirmed database write
+            setName('');
+            setPhone('');
+            setAddress('');
+            setPhoto(undefined);
+            setCreateCarnetToo(false);
+            setDailyMise('1000');
+            setFirstDeposit('1000');
+            setMsg(carnetDataOpt ? 'Client enregistré et carnet ouvert avec succès.' : 'Client enregistré avec succès.');
+            setMobileFormOpen(false);
+            setTimeout(() => setMsg(''), 4000);
+        } catch (err: any) {
+            setFormError(err.message || 'Une erreur est survenue lors de l\'enregistrement.');
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
-    const handleLocalCarnetSubmit = (e: React.FormEvent) => {
+    const handleLocalCarnetSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!selectedClientForModal || !onCreateCarnet) return;
 
@@ -133,8 +145,9 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
             return;
         }
 
+        setModalError('');
         try {
-            onCreateCarnet({
+            await onCreateCarnet({
                 client_id: selectedClientForModal.id,
                 daily_mise: m,
                 agent_id: currentUser.id,
@@ -144,7 +157,6 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
 
             setMsg(`Carnet ouvert pour ${selectedClientForModal.name}.`);
             setSelectedClientForModal(null);
-            setModalError('');
             setTimeout(() => setMsg(''), 4000);
         } catch (err: any) {
             setModalError(err.message || 'Une erreur est survenue.');
@@ -270,6 +282,20 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
     /* ── Shared form UI ── */
     const formContent = (
         <form onSubmit={handleCreate}>
+            {formError && (
+                <div style={{
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    marginBottom: '12px',
+                    backgroundColor: 'var(--error-bg)',
+                    color: 'var(--error-color)',
+                    border: '1px solid var(--error-border)',
+                    fontWeight: 600,
+                    fontSize: '13px'
+                }}>
+                    {formError}
+                </div>
+            )}
             <div className="form-group" style={{ marginBottom: '12px' }}>
                 <label className="form-label">Nom Complet <span style={{ color: 'var(--error-color)' }}>*</span></label>
                 <input
@@ -378,8 +404,13 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
                 )}
             </div>
 
-            <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>
-                Enregistrer Client {createCarnetToo && '& Ouvrir Carnet'}
+            <button
+                type="submit"
+                className="btn btn-primary"
+                style={{ width: '100%', opacity: isSubmitting ? 0.7 : 1 }}
+                disabled={isSubmitting}
+            >
+                {isSubmitting ? 'Enregistrement en cours...' : `Enregistrer Client ${createCarnetToo ? '& Ouvrir Carnet' : ''}`}
             </button>
         </form>
     );

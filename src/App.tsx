@@ -219,15 +219,15 @@ function App() {
         loadedSnapshots,
         loadedPayouts
       ] = await Promise.all([
-        dbSimulated.getProfiles(),
-        dbSimulated.getClients(),
-        dbSimulated.getCarnets(),
-        dbSimulated.getDeposits(),
-        dbSimulated.getRequests(),
-        dbSimulated.getLedger(),
-        dbSimulated.getAgentMonthlyRewards(),
-        dbSimulated.getMonthlySnapshots(),
-        dbSimulated.getAgentPayouts()
+        dbSimulated.getProfiles().catch(err => { console.warn("getProfiles error:", err?.message); return []; }),
+        dbSimulated.getClients().catch(err => { console.warn("getClients error:", err?.message); return []; }),
+        dbSimulated.getCarnets().catch(err => { console.warn("getCarnets error:", err?.message); return []; }),
+        dbSimulated.getDeposits().catch(err => { console.warn("getDeposits error:", err?.message); return []; }),
+        dbSimulated.getRequests().catch(err => { console.warn("getRequests error:", err?.message); return []; }),
+        dbSimulated.getLedger().catch(err => { console.warn("getLedger error:", err?.message); return []; }),
+        dbSimulated.getAgentMonthlyRewards().catch(err => { console.warn("getAgentMonthlyRewards error:", err?.message); return []; }),
+        dbSimulated.getMonthlySnapshots().catch(err => { console.warn("getMonthlySnapshots error:", err?.message); return []; }),
+        dbSimulated.getAgentPayouts().catch(err => { console.warn("getAgentPayouts error:", err?.message); return []; })
       ]);
 
       // Payouts always fully loaded for admin (payout records are filtered server-side by RLS)
@@ -254,32 +254,55 @@ function App() {
         setRequests(loadedRequests);
         setLedger(loadedLedger);
       } else if (user.role === 'supervisor') {
-        // Supervisor sees themselves and agents created by them
+        // Supervisor sees themselves and agents created/supervised by them
         const subAgents = allProfiles
-          .filter(p => p.role === 'agent' && (p.created_by === user.id))
+          .filter(p => p.role === 'agent' && (
+            p.created_by === user.id || 
+            (user.readable_id && p.created_by === user.readable_id) ||
+            loadedCarnets.some(c => c.supervisor_id === user.id && (c.agent_id === p.id || (p.readable_id && c.agent_id === p.readable_id)))
+          ))
           .map(p => p.id);
 
-        const agentIds = [user.id, ...subAgents];
-        const filteredProfiles = allProfiles.filter(p => p.id === user.id || (p.role === 'agent' && p.created_by === user.id));
+        const agentIds = Array.from(new Set([user.id, ...(user.readable_id ? [user.readable_id] : []), ...subAgents]));
+        const filteredProfiles = allProfiles.filter(p => p.id === user.id || subAgents.includes(p.id));
 
         setProfiles(filteredProfiles.length > 0 ? filteredProfiles : [user]);
-        setClients(loadedClients.filter(c => agentIds.includes(c.created_by) || c.created_by === user.id));
-        setCarnets(loadedCarnets.filter(c => c.supervisor_id === user.id || agentIds.includes(c.agent_id)));
+        
+        // Supervisor sees clients created by themselves, their agents, or with carnets supervised by them
+        setClients(loadedClients.filter(c => 
+          agentIds.includes(c.created_by) || 
+          c.created_by === user.id || 
+          (user.readable_id && c.created_by === user.readable_id) ||
+          loadedCarnets.some(car => car.client_id === c.id && (car.supervisor_id === user.id || agentIds.includes(car.agent_id)))
+        ));
+
+        // Supervisor sees carnets supervised by them or managed by their agents
+        setCarnets(loadedCarnets.filter(c => 
+          c.supervisor_id === user.id || 
+          (user.readable_id && c.supervisor_id === user.readable_id) ||
+          agentIds.includes(c.agent_id) ||
+          c.created_by === user.id
+        ));
+
         setRequests(loadedRequests.filter(r => {
           const car = loadedCarnets.find(c => c.id === r.carnet_id);
           return car && (car.supervisor_id === user.id || agentIds.includes(car.agent_id));
         }));
         setLedger(loadedLedger.filter(l => l.type !== 'org_gain'));
       } else if (user.role === 'agent') {
-        const filteredProfiles = allProfiles.filter(p => p.id === user.id || p.id === user.created_by);
+        const agentIdentifiers = [user.id, ...(user.readable_id ? [user.readable_id] : [])];
+        const filteredProfiles = allProfiles.filter(p => agentIdentifiers.includes(p.id) || agentIdentifiers.includes(p.created_by || ''));
         setProfiles(filteredProfiles.length > 0 ? filteredProfiles : [user]);
-        setClients(loadedClients.filter(c => c.created_by === user.id));
-        setCarnets(loadedCarnets.filter(c => c.agent_id === user.id));
+        setClients(loadedClients.filter(c => 
+          agentIdentifiers.includes(c.created_by) ||
+          loadedCarnets.some(car => car.client_id === c.id && (agentIdentifiers.includes(car.agent_id) || agentIdentifiers.includes(car.created_by)))
+        ));
+        setCarnets(loadedCarnets.filter(c => agentIdentifiers.includes(c.agent_id) || agentIdentifiers.includes(c.created_by)));
         setRequests(loadedRequests.filter(r => {
           const car = loadedCarnets.find(c => c.id === r.carnet_id);
-          return car && car.agent_id === user.id;
+          return car && (agentIdentifiers.includes(car.agent_id) || agentIdentifiers.includes(car.created_by));
         }));
-        setLedger(loadedLedger.filter(l => l.agent_id === user.id));
+        setLedger(loadedLedger.filter(l => agentIdentifiers.includes(l.agent_id)));
       }
 
       setDeposits(loadedDeposits);
@@ -463,6 +486,7 @@ function App() {
       await refreshData();
     } catch (err: any) {
       showNotification('Erreur', err.message || 'Impossible de créer le client.', 'warning');
+      throw err; // Re-throw so ClientsView can catch it and show inline error
     }
   };
 
@@ -476,6 +500,7 @@ function App() {
       await refreshData();
     } catch (err: any) {
       showNotification('Erreur', err.message || 'Impossible d\'ouvrir le carnet.', 'warning');
+      throw err; // Re-throw so ClientsView can catch it and show inline error
     }
   };
 
@@ -807,7 +832,7 @@ function App() {
         {/* Tab View router */}
         <div className="content-body">
           {activeTab === 'dashboard' && (
-            <DashboardOverview carnets={carnets} ledger={ledger} currentUser={currentUser} deposits={deposits} />
+            <DashboardOverview carnets={carnets} ledger={ledger} currentUser={currentUser} deposits={deposits} profiles={profiles} clients={clients} />
           )}
           {activeTab === 'profiles' && (
             <ProfilesView 

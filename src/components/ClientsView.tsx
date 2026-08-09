@@ -47,6 +47,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
     const [modalDailyMise, setModalDailyMise] = useState('1000');
     const [modalFirstDeposit, setModalFirstDeposit] = useState('1000');
     const [modalError, setModalError] = useState('');
+    const [pendingClient, setPendingClient] = useState<null | { client: Omit<Client, 'id' | 'created_at' | 'updated_at'>; carnetData?: { daily_mise: number; first_deposit: number } }>(null);
 
     // Supervisor filter
     const [selectedAgentId, setSelectedAgentId] = useState('all');
@@ -88,6 +89,10 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
                 setFormError('La mise et le premier dépôt doivent être supérieurs à 0.');
                 return;
             }
+            if (m > 50000 || m % 500 !== 0) {
+                setFormError('La mise journalière doit être un multiple de 500 FC (entre 500 et 50 000 FC).');
+                return;
+            }
             const k = d / m;
             if (k !== Math.floor(k)) {
                 setFormError(`Le premier dépôt (${d} FC) doit être un multiple de la mise journalière (${m} FC).`);
@@ -96,20 +101,27 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
             carnetDataOpt = { daily_mise: m, first_deposit: d };
         }
 
-        setIsSubmitting(true);
+        // Prepare confirmation modal data
         setFormError('');
-
-        try {
-            await onCreateClient({
+        setPendingClient({
+            client: {
                 name,
                 phone,
                 address,
                 photo,
                 created_by: currentUser.id,
                 updated_by: currentUser.id
-            }, carnetDataOpt);
+            },
+            carnetData: carnetDataOpt
+        });
+    };
 
-            // Only reset form and show success AFTER confirmed database write
+    const confirmAndCreateClient = async () => {
+        if (!pendingClient) return;
+        setIsSubmitting(true);
+        try {
+            await onCreateClient(pendingClient.client, pendingClient.carnetData);
+            // reset form after successful creation
             setName('');
             setPhone('');
             setAddress('');
@@ -117,13 +129,14 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
             setCreateCarnetToo(false);
             setDailyMise('1000');
             setFirstDeposit('1000');
-            setMsg(carnetDataOpt ? 'Client enregistré et carnet ouvert avec succès.' : 'Client enregistré avec succès.');
+            setMsg(pendingClient.carnetData ? 'Client enregistré et carnet ouvert avec succès.' : 'Client enregistré avec succès.');
             setMobileFormOpen(false);
             setTimeout(() => setMsg(''), 4000);
         } catch (err: any) {
             setFormError(err.message || 'Une erreur est survenue lors de l\'enregistrement.');
         } finally {
             setIsSubmitting(false);
+            setPendingClient(null);
         }
     };
 
@@ -136,6 +149,11 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
 
         if (m <= 0 || d <= 0) {
             setModalError('La mise et le dépôt doivent être supérieurs à 0.');
+            return;
+        }
+
+        if (m > 50000 || m % 500 !== 0) {
+            setModalError('La mise journalière doit être un multiple de 500 FC (entre 500 et 50 000 FC).');
             return;
         }
 
@@ -379,12 +397,20 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
                     <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                         <div className="form-group">
                             <label className="form-label" style={{ fontSize: '11px' }}>Mise Journalière (FC)</label>
-                            <select className="form-control" value={dailyMise} onChange={e => { setDailyMise(e.target.value); setFirstDeposit(e.target.value); }}>
-                                <option value="1000">1 000 FC</option>
-                                <option value="2000">2 000 FC</option>
-                                <option value="5000">5 000 FC</option>
-                                <option value="10000">10 000 FC</option>
-                            </select>
+                            <input
+                                type="number"
+                                className="form-control"
+                                value={dailyMise}
+                                min={500}
+                                max={50000}
+                                step={500}
+                                placeholder="Ex: 500, 1000, 1500..."
+                                onChange={e => {
+                                    setDailyMise(e.target.value);
+                                    setFirstDeposit(e.target.value);
+                                }}
+                                required
+                            />
                         </div>
                         <div className="form-group">
                             <label className="form-label" style={{ fontSize: '11px' }}>Premier Dépôt Obligatoire (FC)</label>
@@ -424,20 +450,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
                 </div>
             </div>
 
-            {msg && (
-                <div style={{
-                    padding: '12px',
-                    borderRadius: '8px',
-                    marginBottom: '20px',
-                    backgroundColor: 'var(--success-bg)',
-                    color: '#047857',
-                    border: '1px solid var(--success-border)',
-                    fontWeight: 600,
-                    fontSize: '13px'
-                }}>
-                    {msg}
-                </div>
-            )}
+
 
             {/* ── DESKTOP layout: side by side ── */}
             <div className="clients-desktop-grid">
@@ -634,6 +647,48 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
                 </>
             )}
 
+            {/* Pending Confirmation Modal for Client creation */}
+            {pendingClient && (
+                <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200 }}>
+                    <div style={{ backgroundColor: 'var(--bg-card)', borderRadius: '12px', padding: '20px', maxWidth: '520px', width: '100%' }}>
+                        <h3 style={{ margin: 0 }}>Confirmer l'enregistrement</h3>
+                        <p style={{ marginTop: '6px', color: 'var(--text-light)' }}>Vérifiez les informations ci-dessous et confirmez pour enregistrer.</p>
+
+                        <div style={{ backgroundColor: 'var(--bg-app)', padding: '12px', borderRadius: '10px', marginTop: '12px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: 'var(--text-light)' }}>Nom :</span>
+                                <strong>{pendingClient.client.name}</strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px' }}>
+                                <span style={{ color: 'var(--text-light)' }}>Téléphone :</span>
+                                <strong>{pendingClient.client.phone}</strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px' }}>
+                                <span style={{ color: 'var(--text-light)' }}>Adresse :</span>
+                                <span>{pendingClient.client.address}</span>
+                            </div>
+                            {pendingClient.carnetData && (
+                                <div style={{ marginTop: '10px', borderTop: '1px dashed var(--border)', paddingTop: '10px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                        <span style={{ color: 'var(--text-light)' }}>Mise journalière :</span>
+                                        <strong>{pendingClient.carnetData.daily_mise} FC</strong>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px' }}>
+                                        <span style={{ color: 'var(--text-light)' }}>Premier dépôt :</span>
+                                        <strong>{pendingClient.carnetData.first_deposit} FC</strong>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '16px' }}>
+                            <button className="btn btn-secondary" onClick={() => setPendingClient(null)}>Annuler</button>
+                            <button className="btn btn-primary" onClick={() => confirmAndCreateClient()}>{isSubmitting ? 'Enregistrement…' : 'Accepter et Créer'}</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* ── LOCAL MODAL: NEW CARNET FORM (Instead of redirecting) ── */}
             {selectedClientForModal && (
                 <>
@@ -686,12 +741,20 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
 
                                 <div className="form-group" style={{ marginBottom: '14px' }}>
                                     <label className="form-label">Mise Journalière (FC)</label>
-                                    <select className="form-control" value={modalDailyMise} onChange={e => { setModalDailyMise(e.target.value); setModalFirstDeposit(e.target.value); }}>
-                                        <option value="1000">1 000 FC</option>
-                                        <option value="2000">2 000 FC</option>
-                                        <option value="5000">5 000 FC</option>
-                                        <option value="10000">10 000 FC</option>
-                                    </select>
+                                    <input
+                                        type="number"
+                                        className="form-control"
+                                        value={modalDailyMise}
+                                        min={500}
+                                        max={50000}
+                                        step={500}
+                                        placeholder="Ex: 500, 1000, 1500..."
+                                        onChange={e => {
+                                            setModalDailyMise(e.target.value);
+                                            setModalFirstDeposit(e.target.value);
+                                        }}
+                                        required
+                                    />
                                 </div>
 
                                 <div className="form-group" style={{ marginBottom: '20px' }}>

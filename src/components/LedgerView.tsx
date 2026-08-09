@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import type { LedgerEntry, UserProfile, AgentMonthlyReward, OrgRevenueSnapshot } from '../lib/types';
-import { Download, Printer, TrendingUp, DollarSign } from 'lucide-react';
+import { Download, Printer, TrendingUp, DollarSign, Building2, BadgeDollarSign, Filter } from 'lucide-react';
 
 interface LedgerViewProps {
     ledger: LedgerEntry[];
@@ -15,9 +15,14 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
     rewards,
     snapshots
 }) => {
-    const [activeTab, setActiveTab] = useState<'transactions' | 'monthly' | 'reports'>('transactions');
+    const [activeTab, setActiveTab] = useState<'transactions' | 'monthly' | 'org_revenues' | 'reports'>('transactions');
+    const [orgFilter, setOrgFilter] = useState<'all' | 'carnet_sale' | 'org_gain'>('all');
+    const [orgSearch, setOrgSearch] = useState('');
     const [reportType, setReportType] = useState<'client' | 'agent' | 'organisation'>('organisation');
     const [reportPeriod, setReportPeriod] = useState<'daily' | 'weekly' | 'monthly'>('monthly');
+    const [datePeriod, setDatePeriod] = useState<'all' | 'last_week' | 'last_month' | 'custom'>('all');
+    const [customStart, setCustomStart] = useState<string>('');
+    const [customEnd, setCustomEnd] = useState<string>('');
 
     const isAdmin = currentUser.role === 'super_admin' || currentUser.role === 'admin_principal';
 
@@ -29,7 +34,7 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
         }
 
         const headers = ['ID', 'Carnet', 'Type', 'Montant (FC)', 'Destinataire', 'Date', 'Description'];
-        const rows = ledger.map(l => [
+        const rows = filteredLedger.map(l => [
             l.id,
             l.carnet_number,
             l.type === 'carnet_sale' ? 'Vente de Carnet' : l.type === 'agent_gain' ? 'Commission Agent' : 'Gain Organisation',
@@ -51,17 +56,173 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
         document.body.removeChild(link);
     };
 
+    const mapEntryToOperation = (type: LedgerEntry['type']) => {
+        switch (type) {
+            case 'deposit': return 'Dépôt';
+            case 'create_carnet': return 'Création Carnet';
+            case 'withdrawal_request': return 'Demande de Retrait';
+            case 'withdrawal': return 'Retrait Payé';
+            case 'agent_payout': return 'Paiement Agent';
+            case 'carnet_sale': return 'Vente Carnet / Cotisation';
+            case 'agent_gain': return 'Commission Agent';
+            case 'org_gain': return 'Frais Organisation';
+            default: return type;
+        }
+    };
+
+    const parseRange = () => {
+        const now = new Date();
+        let start: Date | null = null;
+        let end: Date | null = null;
+
+        if (datePeriod === 'all') return { start: null, end: null };
+
+        if (datePeriod === 'last_week') {
+            end = new Date(now);
+            start = new Date(now);
+            start.setDate(start.getDate() - 7);
+            return { start, end };
+        }
+
+        if (datePeriod === 'last_month') {
+            end = new Date(now);
+            start = new Date(now);
+            start.setDate(start.getDate() - 30);
+            return { start, end };
+        }
+
+        if (datePeriod === 'custom') {
+            if (!customStart || !customEnd) return { start: null, end: null };
+            start = new Date(customStart + 'T00:00:00');
+            end = new Date(customEnd + 'T23:59:59');
+            return { start, end };
+        }
+
+        return { start: null, end: null };
+    };
+
+    const exportTransactionsCSV = () => {
+        if (!isAdmin) {
+            alert('Seuls les administrateurs peuvent exporter les données.');
+            return;
+        }
+
+        const headers = ['Date', 'ID Transaction', 'Carnet N°', 'Initiateur', 'Opération', 'Montant (FC)', 'Description'];
+        const rows = filteredLedger.map(l => [
+            new Date(l.created_at).toLocaleDateString('fr-FR'),
+            l.id,
+            l.carnet_number || '—',
+            l.initiator_name || l.agent_name || 'Organisation',
+            mapEntryToOperation(l.type),
+            l.amount,
+            l.description
+        ]);
+
+        const csvContent = "data:text/csv;charset=utf-8," + [headers.join(','), ...rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))].join('\n');
+        const link = document.createElement('a');
+        link.setAttribute('href', encodeURI(csvContent));
+        link.setAttribute('download', `grand_livre_${new Date().toISOString().split('T')[0]}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
     const handlePrint = () => {
         window.print();
     };
 
     const getEntryLabel = (type: LedgerEntry['type']) => {
         switch (type) {
-            case 'carnet_sale': return <span className="badge badge-active" style={{ backgroundColor: 'rgba(56, 189, 248, 0.1)', color: '#0284c7', borderColor: 'rgba(56, 189, 248, 0.2)' }}>Vente Carnet (+500 FC)</span>;
-            case 'agent_gain': return <span className="badge badge-locked">Part Agent (50%)</span>;
-            case 'org_gain': return <span className="badge badge-active">Part Organisation (50%)</span>;
+            case 'carnet_sale': return <span className="badge badge-active" style={{ backgroundColor: 'rgba(56, 189, 248, 0.1)', color: '#0284c7', borderColor: 'rgba(56, 189, 248, 0.2)' }}>Cotisation Organisation (500 FC)</span>;
+            case 'agent_gain': return <span className="badge badge-locked">Commission Agent (50% 1er dépôt)</span>;
+            case 'org_gain': return <span className="badge badge-active">Frais Fonct. Organisation (50% 1er dépôt)</span>;
         }
     };
+
+    // Org revenue entries: carnet_sale (500 FC) + org_gain (50% first deposit)
+    const orgRevenueEntries = useMemo(() => {
+        const { start, end } = parseRange();
+        return ledger
+            .filter(l => l.type === 'carnet_sale' || l.type === 'org_gain')
+            .filter(l => orgFilter === 'all' || l.type === orgFilter)
+            .filter(l => {
+                if (!orgSearch) return true;
+                const q = orgSearch.toLowerCase();
+                return (
+                    (l.carnet_number || '').toLowerCase().includes(q) ||
+                    (l.agent_name || '').toLowerCase().includes(q) ||
+                    (l.description || '').toLowerCase().includes(q)
+                );
+            })
+            .filter(l => {
+                if (!start || !end) return true;
+                const d = new Date(l.created_at);
+                return d.getTime() >= start.getTime() && d.getTime() <= end.getTime();
+            })
+            .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    }, [ledger, orgFilter, orgSearch]);
+
+    const totalOrgRevenue = useMemo(() =>
+        orgRevenueEntries.reduce((sum, e) => sum + e.amount, 0),
+    [orgRevenueEntries]);
+
+    const totalCarnetFees = useMemo(() =>
+        ledger.filter(l => l.type === 'carnet_sale').reduce((sum, e) => sum + e.amount, 0),
+    [ledger]);
+
+    const totalOrgGain = useMemo(() =>
+        ledger.filter(l => l.type === 'org_gain').reduce((sum, e) => sum + e.amount, 0),
+    [ledger]);
+
+    const exportOrgCSV = () => {
+        const headers = ['Date', 'Type', 'Carnet N°', 'Agent', 'Montant (FC)', 'Description'];
+        const rows = orgRevenueEntries.map(l => [
+            new Date(l.created_at).toLocaleDateString('fr-FR'),
+            l.type === 'carnet_sale' ? 'Cotisation Ouverture (500 FC)' : 'Frais Fonct. (50% 1er dépôt)',
+            l.carnet_number || '—',
+            l.agent_name || '—',
+            l.amount,
+            l.description
+        ]);
+        const csvContent = "data:text/csv;charset=utf-8,"
+            + [headers.join(','), ...rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))].join('\n');
+        const link = document.createElement('a');
+        link.setAttribute('href', encodeURI(csvContent));
+        link.setAttribute('download', `revenus_organisation_${new Date().toISOString().split('T')[0]}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
+    // Filtered ledger according to date range for transactions tab and exports
+    const filteredLedger = useMemo(() => {
+        const { start, end } = parseRange();
+        if (!start || !end) return ledger.slice().sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        return ledger
+            .filter(l => {
+                const d = new Date(l.created_at);
+                return d.getTime() >= start.getTime() && d.getTime() <= end.getTime();
+            })
+            .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    }, [ledger, datePeriod, customStart, customEnd]);
+
+    const filteredSnapshots = useMemo(() => {
+        const { start, end } = parseRange();
+        if (!start || !end) return snapshots;
+        return snapshots.filter(s => {
+            const d = new Date(s.year, (s.month || 1) - 1, 1);
+            return d.getTime() >= start.getTime() && d.getTime() <= end.getTime();
+        });
+    }, [snapshots, datePeriod, customStart, customEnd]);
+
+    const filteredRewards = useMemo(() => {
+        const { start, end } = parseRange();
+        if (!start || !end) return rewards;
+        return rewards.filter(r => {
+            const d = new Date(r.year, (r.month || 1) - 1, 1);
+            return d.getTime() >= start.getTime() && d.getTime() <= end.getTime();
+        });
+    }, [rewards, datePeriod, customStart, customEnd]);
 
     return (
         <div>
@@ -89,7 +250,7 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
                                 </tr>
                             </thead>
                             <tbody>
-                                {snapshots.map(s => (
+                                {filteredSnapshots.map(s => (
                                     <tr key={s.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
                                         <td style={{ padding: '8px' }}>Mois {s.month}/{s.year}</td>
                                         <td style={{ padding: '8px', textAlign: 'right' }}>{s.total_sales_revenue.toLocaleString()} FC</td>
@@ -115,7 +276,7 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
                                 </tr>
                             </thead>
                             <tbody>
-                                {rewards.map(r => (
+                                {filteredRewards.map(r => (
                                     <tr key={r.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
                                         <td style={{ padding: '8px', fontWeight: 'bold' }}>{r.agent_name}</td>
                                         <td style={{ padding: '8px' }}>Mois {r.month}/{r.year}</td>
@@ -141,7 +302,7 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
                                 </tr>
                             </thead>
                             <tbody>
-                                {ledger.slice(0, 15).map(l => (
+                                {filteredLedger.slice(0, 15).map(l => (
                                     <tr key={l.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
                                         <td style={{ padding: '8px' }}>{new Date(l.created_at).toLocaleDateString()}</td>
                                         <td style={{ padding: '8px' }}>
@@ -188,6 +349,13 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
                 {isAdmin && (
                     <>
                         <button
+                            className={`btn ${activeTab === 'org_revenues' ? 'btn-primary' : 'btn-secondary'}`}
+                            style={{ padding: '8px 16px', fontSize: '13px' }}
+                            onClick={() => setActiveTab('org_revenues')}
+                        >
+                            <Building2 size={14} /> Revenus Organisation
+                        </button>
+                        <button
                             className={`btn ${activeTab === 'monthly' ? 'btn-primary' : 'btn-secondary'}`}
                             style={{ padding: '8px 16px', fontSize: '13px' }}
                             onClick={() => setActiveTab('monthly')}
@@ -203,38 +371,219 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
                         </button>
                     </>
                 )}
+                {isAdmin && (
+                    <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Filter size={14} style={{ color: 'var(--text-light)' }} />
+                        <select
+                            className="form-control"
+                            value={datePeriod}
+                            onChange={e => setDatePeriod(e.target.value as any)}
+                            style={{ minWidth: '170px', fontSize: '13px' }}
+                        >
+                            <option value="all">Toute période</option>
+                            <option value="last_week">Semaine dernière</option>
+                            <option value="last_month">Mois dernier</option>
+                            <option value="custom">Plage personnalisée</option>
+                        </select>
+                        {datePeriod === 'custom' && (
+                            <>
+                                <input type="date" className="form-control" value={customStart} onChange={e => setCustomStart(e.target.value)} style={{ fontSize: '13px' }} />
+                                <input type="date" className="form-control" value={customEnd} onChange={e => setCustomEnd(e.target.value)} style={{ fontSize: '13px' }} />
+                            </>
+                        )}
+                    </div>
+                )}
             </div>
 
             {/* Tab Content 1: Ledger Account Statement */}
             {activeTab === 'transactions' && (
                 <div className="panel no-print">
                     <div className="panel-body" style={{ padding: 0 }}>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '8px' }}>
+                            {isAdmin && (
+                                <button className="btn btn-secondary" style={{ fontSize: '12px', padding: '6px 12px' }} onClick={exportTransactionsCSV}>
+                                    <Download size={13} /> CSV
+                                </button>
+                            )}
+                        </div>
                         <table className="responsive-table">
                             <thead>
                                 <tr>
                                     <th>Date</th>
                                     <th>ID Transaction</th>
                                     <th>Carnet No</th>
-                                    <th>Type d'écriture</th>
-                                    <th>Bénéficiaire</th>
+                                    <th>Initiateur</th>
                                     <th>Description</th>
                                     <th style={{ textAlign: 'right' }}>Montant</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {ledger.map(l => (
+                                {filteredLedger.map(l => (
                                     <tr key={l.id}>
-                                        <td>{new Date(l.created_at).toLocaleDateString()}</td>
+                                        <td>{new Date(l.created_at).toLocaleDateString('fr-FR')}</td>
                                         <td><code style={{ fontSize: '10px' }}>{l.id}</code></td>
-                                        <td><code style={{ fontWeight: 600 }}>{l.carnet_number}</code></td>
-                                        <td>{getEntryLabel(l.type)}</td>
-                                        <td>{l.agent_name || <span style={{ color: 'var(--text-light)', fontStyle: 'italic' }}>Organisation</span>}</td>
-                                        <td style={{ fontSize: '12px', color: 'var(--text-medium)' }}>{l.description}</td>
+                                        <td><code style={{ fontWeight: 600 }}>{l.carnet_number || '—'}</code></td>
+                                        <td>{l.initiator_name || l.agent_name || <span style={{ color: 'var(--text-light)', fontStyle: 'italic' }}>Organisation</span>}</td>
+                                        <td style={{ fontSize: '12px', color: 'var(--text-medium)' }}>{mapEntryToOperation(l.type)}{l.description ? ` — ${l.description}` : ''}</td>
                                         <td style={{ textAlign: 'right', fontWeight: 600 }}>{l.amount.toLocaleString()} FC</td>
                                     </tr>
                                 ))}
                             </tbody>
                         </table>
+                    </div>
+                </div>
+            )}
+
+            {/* Tab Content 1b: Organisation Revenue Detail */}
+            {activeTab === 'org_revenues' && isAdmin && (
+                <div className="no-print">
+                    {/* KPI Summary Cards */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '24px' }}>
+                        <div className="panel" style={{ padding: '20px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <div style={{ width: '42px', height: '42px', borderRadius: '12px', backgroundColor: 'rgba(56,189,248,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0284c7' }}>
+                                    <BadgeDollarSign size={22} />
+                                </div>
+                                <div>
+                                    <div style={{ fontSize: '11px', color: 'var(--text-light)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Cotisations Ouverture</div>
+                                    <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-dark)' }}>{totalCarnetFees.toLocaleString()} FC</div>
+                                    <div style={{ fontSize: '11px', color: 'var(--text-light)' }}>{ledger.filter(l => l.type === 'carnet_sale').length} carnets • 500 FC / carnet</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="panel" style={{ padding: '20px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <div style={{ width: '42px', height: '42px', borderRadius: '12px', backgroundColor: 'rgba(16,185,129,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#059669' }}>
+                                    <TrendingUp size={22} />
+                                </div>
+                                <div>
+                                    <div style={{ fontSize: '11px', color: 'var(--text-light)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Frais de Fonctionnement</div>
+                                    <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-dark)' }}>{totalOrgGain.toLocaleString()} FC</div>
+                                    <div style={{ fontSize: '11px', color: 'var(--text-light)' }}>{ledger.filter(l => l.type === 'org_gain').length} entrées • 50% des 1ers dépôts</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="panel" style={{ padding: '20px', border: '2px solid var(--primary)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <div style={{ width: '42px', height: '42px', borderRadius: '12px', backgroundColor: 'rgba(99,102,241,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--primary)' }}>
+                                    <Building2 size={22} />
+                                </div>
+                                <div>
+                                    <div style={{ fontSize: '11px', color: 'var(--text-light)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Revenus Organisation</div>
+                                    <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--primary)' }}>{(totalCarnetFees + totalOrgGain).toLocaleString()} FC</div>
+                                    <div style={{ fontSize: '11px', color: 'var(--text-light)' }}>Toutes sources confondues</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Filters */}
+                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '8px', padding: '6px 12px' }}>
+                            <Filter size={14} style={{ color: 'var(--text-light)' }} />
+                            <select
+                                className="form-control"
+                                style={{ border: 'none', padding: '0', height: 'auto', fontSize: '13px', backgroundColor: 'transparent', minWidth: '200px' }}
+                                value={orgFilter}
+                                onChange={e => setOrgFilter(e.target.value as any)}
+                            >
+                                <option value="all">Toutes les entrées org.</option>
+                                <option value="carnet_sale">Cotisations d'ouverture (500 FC)</option>
+                                <option value="org_gain">Frais de fonctionnement (50% 1er dépôt)</option>
+                            </select>
+                        </div>
+                        <input
+                            type="text"
+                            className="form-control"
+                            placeholder="Rechercher carnet, agent..."
+                            value={orgSearch}
+                            onChange={e => setOrgSearch(e.target.value)}
+                            style={{ maxWidth: '280px', padding: '6px 12px', fontSize: '13px' }}
+                        />
+                        <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+                            <span style={{ fontSize: '12px', color: 'var(--text-medium)', alignSelf: 'center' }}>
+                                {orgRevenueEntries.length} entrée(s) • <strong style={{ color: 'var(--primary)' }}>{totalOrgRevenue.toLocaleString()} FC</strong>
+                            </span>
+                            <button className="btn btn-secondary" style={{ fontSize: '12px', padding: '6px 12px' }} onClick={exportOrgCSV}>
+                                <Download size={13} /> CSV
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Detail Table */}
+                    <div className="panel">
+                        <div className="panel-body" style={{ padding: 0 }}>
+                            <table className="responsive-table">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Type d'entrée</th>
+                                        <th>Carnet N°</th>
+                                        <th>Agent percepteur</th>
+                                        <th>Description</th>
+                                        <th style={{ textAlign: 'right' }}>Montant</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {orgRevenueEntries.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={6} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-light)', fontStyle: 'italic' }}>
+                                                Aucune entrée de revenu organisation trouvée.
+                                            </td>
+                                        </tr>
+                                    ) : (
+                                        orgRevenueEntries.map(entry => (
+                                            <tr key={entry.id}>
+                                                <td style={{ fontSize: '12px', whiteSpace: 'nowrap' }}>
+                                                    {new Date(entry.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                                </td>
+                                                <td>
+                                                    {entry.type === 'carnet_sale' ? (
+                                                        <span className="badge" style={{ backgroundColor: 'rgba(56,189,248,0.1)', color: '#0284c7', border: '1px solid rgba(56,189,248,0.3)', fontSize: '11px', padding: '2px 8px', borderRadius: '20px', fontWeight: 600 }}>
+                                                            🏷️ Cotisation 500 FC
+                                                        </span>
+                                                    ) : (
+                                                        <span className="badge" style={{ backgroundColor: 'rgba(16,185,129,0.1)', color: '#059669', border: '1px solid rgba(16,185,129,0.3)', fontSize: '11px', padding: '2px 8px', borderRadius: '20px', fontWeight: 600 }}>
+                                                            📊 Frais Fonct. (50%)
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                <td>
+                                                    <code style={{ fontSize: '11px', fontWeight: 700, color: 'var(--primary)' }}>
+                                                        {entry.carnet_number || <span style={{ color: 'var(--text-light)', fontStyle: 'italic', fontFamily: 'inherit' }}>—</span>}
+                                                    </code>
+                                                </td>
+                                                <td style={{ fontSize: '13px' }}>
+                                                    {entry.agent_name ? (
+                                                        <span style={{ fontWeight: 600 }}>{entry.agent_name}</span>
+                                                    ) : (
+                                                        <span style={{ color: 'var(--text-light)', fontStyle: 'italic' }}>—</span>
+                                                    )}
+                                                </td>
+                                                <td style={{ fontSize: '11px', color: 'var(--text-medium)', maxWidth: '260px' }}>
+                                                    {entry.description}
+                                                </td>
+                                                <td style={{ textAlign: 'right', fontWeight: 700, fontSize: '14px', color: entry.type === 'carnet_sale' ? '#0284c7' : '#059669', whiteSpace: 'nowrap' }}>
+                                                    +{entry.amount.toLocaleString()} FC
+                                                </td>
+                                            </tr>
+                                        ))
+                                    )}
+                                </tbody>
+                                {orgRevenueEntries.length > 0 && (
+                                    <tfoot>
+                                        <tr style={{ borderTop: '2px solid var(--border)', backgroundColor: 'var(--bg-app)' }}>
+                                            <td colSpan={5} style={{ padding: '12px 16px', fontWeight: 700, fontSize: '13px', color: 'var(--text-dark)' }}>
+                                                Total affiché ({orgRevenueEntries.length} entrées)
+                                            </td>
+                                            <td style={{ textAlign: 'right', padding: '12px 16px', fontWeight: 800, fontSize: '16px', color: 'var(--primary)' }}>
+                                                +{totalOrgRevenue.toLocaleString()} FC
+                                            </td>
+                                        </tr>
+                                    </tfoot>
+                                )}
+                            </table>
+                        </div>
                     </div>
                 </div>
             )}
@@ -262,7 +611,7 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {snapshots.map(s => (
+                                    {filteredSnapshots.map(s => (
                                         <tr key={s.id}>
                                             <td>Mois {s.month}/{s.year}</td>
                                             <td>{s.total_sales_revenue.toLocaleString()} FC</td>
@@ -296,7 +645,7 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {rewards.map(r => (
+                                    {filteredRewards.map(r => (
                                         <tr key={r.id}>
                                             <td><strong>{r.agent_name}</strong></td>
                                             <td>{r.month}/{r.year}</td>

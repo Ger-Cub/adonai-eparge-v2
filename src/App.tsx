@@ -19,19 +19,34 @@ import { LedgerView } from './components/LedgerView';
 import { StatisticsView } from './components/StatisticsView';
 import { PayrollView } from './components/PayrollView';
 import logoAdonai from './assets/logo-adonai.jpg';
+import NotificationContext from './lib/notificationContext';
 
 // Icons
 import {
   LayoutDashboard, Users, FolderHeart,
   ArrowUpDown, BookOpen, LogOut,
-  Moon, Sun, X, TrendingUp, Bell, Database, Banknote
+  Moon, Sun, X, TrendingUp, Bell, Database, Banknote,
+  UserCheck, ArrowLeftRight, CheckCircle
 } from 'lucide-react';
 
 function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [impersonatedUser, setImpersonatedUser] = useState<UserProfile | null>(null);
+  const effectiveUser = impersonatedUser ?? currentUser;
+
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+
+  // Deposit Success Center Overlay Modal state
+  const [depositSuccessModalData, setDepositSuccessModalData] = useState<{
+    carnetNumber: string;
+    clientName: string;
+    amount: number;
+    slotsCount: number;
+    newDepId?: string;
+  } | null>(null);
+  const depositModalTimerRef = useRef<any>(null);
 
   // Database States
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
@@ -47,7 +62,7 @@ function App() {
   // Navigation helpers
   const [selectedClientForNewCarnet, setSelectedClientForNewCarnet] = useState<Client | null>(null);
 
-  // In-app Push Notification State
+  // In-app Push Notification State with 30-day auto-purge
   interface AppNotification {
     id: string;
     title: string;
@@ -57,25 +72,41 @@ function App() {
     read: boolean;
   }
 
-  const [notifications, setNotifications] = useState<AppNotification[]>([
-    {
-      id: 'notif-1',
-      title: 'Plateforme Active',
-      message: 'Bienvenue sur la plateforme Adonai Épargne ! Les modules sont connectés et opérationnels.',
-      type: 'success',
-      created_at: new Date(Date.now() - 3600000 * 2).toISOString(),
-      read: false
-    },
-    {
-      id: 'notif-2',
-      title: 'Grand Livre',
-      message: 'Le grand livre est actif et calcule les commissions automatiquement.',
-      type: 'info',
-      created_at: new Date(Date.now() - 3600000).toISOString(),
-      read: true
+  const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+  const [notifications, setNotifications] = useState<AppNotification[]>(() => {
+    try {
+      const saved = localStorage.getItem('adonai_push_notifications');
+      if (saved) {
+        const parsed: AppNotification[] = JSON.parse(saved);
+        return parsed.filter(n => (Date.now() - new Date(n.created_at).getTime()) <= THIRTY_DAYS_MS);
+      }
+    } catch (err) {
+      console.error("Erreur chargement notifications:", err);
     }
-  ]);
+    return [
+      {
+        id: 'notif-1',
+        title: 'Plateforme Active',
+        message: 'Bienvenue sur Adonai Épargne ! Système de notifications (30 jours max) et impersonation prêts.',
+        type: 'success',
+        created_at: new Date().toISOString(),
+        read: false
+      }
+    ];
+  });
+
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+
+  // Auto-save notifications to localStorage with 30-day purge
+  useEffect(() => {
+    try {
+      const fresh = notifications.filter(n => (Date.now() - new Date(n.created_at).getTime()) <= THIRTY_DAYS_MS);
+      localStorage.setItem('adonai_push_notifications', JSON.stringify(fresh));
+    } catch (err) {
+      console.error("Erreur sauvegarde notifications:", err);
+    }
+  }, [notifications]);
 
   // Close notifications dropdown when clicking outside anywhere on document
   useEffect(() => {
@@ -95,6 +126,7 @@ function App() {
       document.removeEventListener('touchstart', handleClickOutside);
     };
   }, [notificationsOpen]);
+
   const [activeToast, setActiveToast] = useState<{ 
     title: string; 
     message: string; 
@@ -133,12 +165,22 @@ function App() {
 
     toastTimeoutRef.current = setTimeout(() => {
       setActiveToast(null);
-    }, 18000); // 18 seconds auto-close to give time for undo action
+    }, 18000);
   };
 
   const markAllAsRead = () => {
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
     setNotificationsOpen(false);
+  };
+
+  const handleImpersonate = async (targetUser: UserProfile | null) => {
+    setImpersonatedUser(targetUser);
+    if (targetUser) {
+      showNotification('Mode Impersonation', `Vue basculée sous l'identité de : ${targetUser.full_name} (${getRoleLabel(targetUser.role)})`, 'warning');
+    } else {
+      showNotification('Mode Impersonation', 'Retour à votre vue Super Admin réelle.', 'info');
+    }
+    await refreshData(targetUser ?? currentUser);
   };
 
   const renderNotificationBell = (isMobile: boolean) => {
@@ -156,7 +198,10 @@ function App() {
         {notificationsOpen && (
           <div className="notification-dropdown" style={isMobile ? { right: '-50px', width: '300px' } : undefined}>
             <div className="notification-dropdown-header">
-              <span className="notification-dropdown-title">Notifications Push</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span className="notification-dropdown-title">Notifications Push</span>
+                <span className="notification-retention-badge">30 Jours</span>
+              </div>
               {unreadCount > 0 && (
                 <button className="notification-mark-all-btn" onClick={markAllAsRead}>
                   Tout marquer lu
@@ -188,7 +233,7 @@ function App() {
                       <span className="notification-item-title">{notif.title}</span>
                       <span className="notification-item-msg">{notif.message}</span>
                       <span className="notification-item-time">
-                        {new Date(notif.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                        {new Date(notif.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })} {new Date(notif.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
                       </span>
                     </div>
                   </div>
@@ -202,10 +247,9 @@ function App() {
   };
 
   // Load Database Values
-  // Load Database Values
   const refreshData = async (userOverride?: UserProfile | null) => {
     try {
-      const user = userOverride || currentUser;
+      const user = userOverride !== undefined ? userOverride : effectiveUser;
       if (!user) return;
 
       const [
@@ -504,21 +548,54 @@ function App() {
     }
   };
 
-  const handleAddDeposit = async (deposit: Omit<CarnetDeposit, 'id' | 'slots_count' | 'created_at' | 'updated_at'>) => {
-    try {
-      const newDep = await dbSimulated.addDeposit(deposit);
-      showNotification('Versement Validé', `Dépôt de ${deposit.amount} FC enregistré.`, 'success', {
-        onUndo: async () => {
+  const dismissDepositModal = (carnetNum?: string, clientName?: string, amount?: number, newDepId?: string) => {
+    if (depositModalTimerRef.current) clearTimeout(depositModalTimerRef.current);
+    if (depositSuccessModalData || amount) {
+      const amt = amount ?? depositSuccessModalData?.amount ?? 0;
+      const depId = newDepId ?? depositSuccessModalData?.newDepId;
+      showNotification('Versement Validé', `Dépôt de ${amt.toLocaleString()} FC validé avec succès.`, 'success', {
+        onUndo: depId ? async () => {
           try {
-            await dbSimulated.deleteDeposit(newDep.id);
-            showNotification('Versement Annulé', `Le versement de ${deposit.amount} FC a été annulé.`, 'warning');
-            await refreshData();
+            await dbSimulated.deleteDeposit(depId);
+            showNotification('Versement Annulé', `Le versement de ${amt.toLocaleString()} FC a été annulé.`, 'warning');
+            await refreshData(effectiveUser);
           } catch (undoErr: any) {
             showNotification('Erreur d\'annulation', undoErr.message || 'Impossible d\'annuler le versement.', 'warning');
           }
-        }
+        } : undefined
       });
-      await refreshData();
+    }
+    setDepositSuccessModalData(null);
+  };
+
+  const handleAddDeposit = async (deposit: Omit<CarnetDeposit, 'id' | 'slots_count' | 'created_at' | 'updated_at'>) => {
+    try {
+      const newDep = await dbSimulated.addDeposit(deposit);
+      const targetCarnet = carnets.find(c => c.id === deposit.carnet_id);
+      const targetClient = clients.find(c => c.id === targetCarnet?.client_id);
+      const slotsCount = newDep.slots_count || Math.max(1, Math.floor(deposit.amount / (targetCarnet?.daily_mise || deposit.amount)));
+
+      // 1. Display center page deposit modal
+      setDepositSuccessModalData({
+        carnetNumber: targetCarnet?.carnet_number || `CARNET-${deposit.carnet_id.substring(0, 4)}`,
+        clientName: targetClient?.name || 'Client Titulaire',
+        amount: deposit.amount,
+        slotsCount: slotsCount,
+        newDepId: newDep.id
+      });
+
+      // 2. Auto-close after 2.5s and trigger toast notification
+      if (depositModalTimerRef.current) clearTimeout(depositModalTimerRef.current);
+      depositModalTimerRef.current = setTimeout(() => {
+        dismissDepositModal(
+          targetCarnet?.carnet_number,
+          targetClient?.name,
+          deposit.amount,
+          newDep.id
+        );
+      }, 2500);
+
+      await refreshData(effectiveUser);
     } catch (err: any) {
       showNotification('Erreur de dépôt', err.message || 'Impossible d\'ajouter le versement.', 'warning');
     }
@@ -683,7 +760,7 @@ function App() {
     { id: 'ledger', icon: <BookOpen size={18} />, label: 'Grand Livre & Exports' },
   ];
 
-  if (currentUser.role === 'admin_principal' || currentUser.role === 'super_admin') {
+  if (effectiveUser.role === 'admin_principal' || effectiveUser.role === 'super_admin') {
     sidebarExtraItems.push({ id: 'stats', icon: <TrendingUp size={18} />, label: 'Statistiques' });
     sidebarExtraItems.push({ id: 'payroll', icon: <Banknote size={18} />, label: 'Gestion de la Paie' });
   }
@@ -694,7 +771,25 @@ function App() {
   };
 
   return (
-    <div className="app-container">
+    <NotificationContext.Provider value={{ showNotification }}>
+    <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100vh', overflow: 'hidden' }}>
+      {/* ── SUPER ADMIN IMPERSONATION BANNER ── */}
+      {impersonatedUser && (
+        <div className="impersonation-banner no-print">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <UserCheck size={16} />
+            <span>
+              <strong>Mode impersonation actif</strong> — Session active sous l'identité de <strong>{impersonatedUser.full_name}</strong> ({getRoleLabel(impersonatedUser.role)})
+            </span>
+          </div>
+          <button className="btn-exit-impersonation" onClick={() => handleImpersonate(null)}>
+            Quitter l'impersonation
+          </button>
+        </div>
+      )}
+
+      <div className="app-container" style={{ flex: 1, minHeight: 0, height: '100%' }}>
+
       {/* ── 1. DESKTOP Sidebar ── */}
       <aside className="sidebar no-print">
         <div className="sidebar-logo">
@@ -714,12 +809,43 @@ function App() {
           ))}
         </nav>
 
+        {/* Super Admin Impersonation Selector Box */}
+        {currentUser?.role === 'super_admin' && (
+          <div className="impersonate-sidebar-box">
+            <label className="impersonate-sidebar-label">
+              <UserCheck size={12} /> Se connecter en tant que
+            </label>
+            <select
+              className="impersonate-sidebar-select"
+              value={impersonatedUser?.id || ''}
+              onChange={e => {
+                const val = e.target.value;
+                if (!val) {
+                  handleImpersonate(null);
+                } else {
+                  const target = profiles.find(p => p.id === val);
+                  if (target) handleImpersonate(target);
+                }
+              }}
+            >
+              <option value="">-- Mode Admin Réel --</option>
+              {profiles.filter(p => p.id !== currentUser.id).map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.full_name} ({getRoleLabel(p.role)})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         <div className="sidebar-footer">
           <div className="user-snippet">
-            <div className="user-avatar">{currentUser.full_name.charAt(0)}</div>
+            <div className="user-avatar" style={impersonatedUser ? { backgroundColor: 'var(--amber-600, #d97706)', color: 'white' } : undefined}>
+              {effectiveUser.full_name.charAt(0)}
+            </div>
             <div className="user-details">
-              <span className="user-name">{currentUser.full_name}</span>
-              <span className="user-role-badge">{getRoleLabel(currentUser.role)}</span>
+              <span className="user-name">{effectiveUser.full_name}</span>
+              <span className="user-role-badge">{getRoleLabel(effectiveUser.role)}</span>
             </div>
           </div>
           <button className="btn btn-secondary" style={{ width: '100%', gap: '8px', color: 'var(--sb-logout-color)', backgroundColor: 'transparent', border: '1px solid var(--sb-logout-border)' }} onClick={handleLogout}>
@@ -729,14 +855,11 @@ function App() {
       </aside>
 
       {/* ── 2. MOBILE Sidebar Drawer ── */}
-      {/* Backdrop */}
       <div
         className={`mobile-drawer-backdrop ${mobileSidebarOpen ? 'open' : ''}`}
         onClick={() => setMobileSidebarOpen(false)}
       />
-      {/* Drawer panel */}
       <aside className={`mobile-drawer ${mobileSidebarOpen ? 'open' : ''} no-print`}>
-        {/* Drawer header */}
         <div className="mobile-drawer-header">
           <div className="mobile-drawer-logo">
             <img src={logoAdonai} alt="Logo Adonaï" className="mobile-drawer-logo-img" />
@@ -747,14 +870,12 @@ function App() {
           </button>
         </div>
 
-        {/* Status indicator inside drawer */}
         <div className="mobile-drawer-status">
           <div className="status-indicator live" style={{ fontSize: '11px' }}>
             <Database size={12} /> Connecté à Supabase
           </div>
         </div>
 
-        {/* Drawer nav: all 6 items */}
         <nav className="mobile-drawer-nav">
           <p className="mobile-drawer-section-label">Navigation</p>
           {[...bottomNavItems, ...sidebarExtraItems].map(item => (
@@ -769,15 +890,45 @@ function App() {
           ))}
         </nav>
 
-        {/* Drawer footer: user profile */}
+        {currentUser?.role === 'super_admin' && (
+          <div style={{ padding: '0 16px', marginBottom: '16px' }}>
+            <div className="impersonate-sidebar-box">
+              <label className="impersonate-sidebar-label">
+                <UserCheck size={12} /> Se connecter en tant que
+              </label>
+              <select
+                className="impersonate-sidebar-select"
+                value={impersonatedUser?.id || ''}
+                onChange={e => {
+                  const val = e.target.value;
+                  if (!val) {
+                    handleImpersonate(null);
+                  } else {
+                    const target = profiles.find(p => p.id === val);
+                    if (target) handleImpersonate(target);
+                  }
+                  setMobileSidebarOpen(false);
+                }}
+              >
+                <option value="">-- Mode Admin Réel --</option>
+                {profiles.filter(p => p.id !== currentUser.id).map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.full_name} ({getRoleLabel(p.role)})
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
+
         <div className="mobile-drawer-footer">
           <div className="mobile-drawer-user">
-            <div className="user-avatar" style={{ width: '44px', height: '44px', fontSize: '18px' }}>
-              {currentUser.full_name.charAt(0)}
+            <div className="user-avatar" style={{ width: '44px', height: '44px', fontSize: '18px', backgroundColor: impersonatedUser ? 'var(--amber-600, #d97706)' : undefined }}>
+              {effectiveUser.full_name.charAt(0)}
             </div>
             <div className="user-details">
-              <span className="user-name">{currentUser.full_name}</span>
-              <span className="user-role-badge">{getRoleLabel(currentUser.role)}</span>
+              <span className="user-name">{effectiveUser.full_name}</span>
+              <span className="user-role-badge">{getRoleLabel(effectiveUser.role)}</span>
             </div>
           </div>
 
@@ -797,15 +948,41 @@ function App() {
         {/* Desktop Top Navbar */}
         <header className="top-bar no-print">
           <div className="top-bar-user-info">
-            <div className="user-avatar" style={{ width: '32px', height: '32px', fontSize: '13px', flexShrink: 0 }}>
-              {currentUser.full_name.charAt(0)}
+            <div className="user-avatar" style={{ width: '32px', height: '32px', fontSize: '13px', flexShrink: 0, backgroundColor: impersonatedUser ? 'var(--amber-600, #d97706)' : undefined }}>
+              {effectiveUser.full_name.charAt(0)}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>
-              <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-dark)' }}>{currentUser.full_name}</span>
-              <span style={{ fontSize: '11px', color: 'var(--text-light)' }}>{getRoleLabel(currentUser.role)}</span>
+              <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-dark)' }}>{effectiveUser.full_name}</span>
+              <span style={{ fontSize: '11px', color: 'var(--text-light)' }}>{getRoleLabel(effectiveUser.role)}</span>
             </div>
           </div>
           <div className="top-bar-actions">
+            {currentUser?.role === 'super_admin' && (
+              <div className="impersonate-topbar-wrapper" title="Mode impersonation super admin">
+                <ArrowLeftRight size={14} style={{ color: '#d97706' }} />
+                <select
+                  className="impersonate-topbar-select"
+                  value={impersonatedUser?.id || ''}
+                  onChange={e => {
+                    const val = e.target.value;
+                    if (!val) {
+                      handleImpersonate(null);
+                    } else {
+                      const target = profiles.find(p => p.id === val);
+                      if (target) handleImpersonate(target);
+                    }
+                  }}
+                >
+                  <option value="">Admin réel ({currentUser.full_name})</option>
+                  {profiles.filter(p => p.id !== currentUser.id).map(p => (
+                    <option key={p.id} value={p.id}>
+                      ⇄ {p.full_name} ({getRoleLabel(p.role)})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             {renderNotificationBell(false)}
             <button className="btn btn-secondary" style={{ padding: '8px' }} onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>
               {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
@@ -815,7 +992,6 @@ function App() {
 
         {/* Mobile Header */}
         <header className="mobile-header no-print">
-          {/* Logo button → opens drawer */}
           <button className="mobile-header-logo-btn" onClick={() => setMobileSidebarOpen(true)}>
             <img src={logoAdonai} alt="Logo Adonaï" className="mobile-header-logo-img" />
             <span className="mobile-header-title">Adona&iuml; Épargne</span>
@@ -832,12 +1008,12 @@ function App() {
         {/* Tab View router */}
         <div className="content-body">
           {activeTab === 'dashboard' && (
-            <DashboardOverview carnets={carnets} ledger={ledger} currentUser={currentUser} deposits={deposits} profiles={profiles} clients={clients} />
+            <DashboardOverview carnets={carnets} ledger={ledger} currentUser={effectiveUser} deposits={deposits} profiles={profiles} clients={clients} />
           )}
           {activeTab === 'profiles' && (
             <ProfilesView 
               profiles={profiles} 
-              currentUser={currentUser} 
+              currentUser={effectiveUser} 
               onCreateProfile={handleCreateProfile} 
               onDeleteProfile={handleDeleteProfile} 
               isSupabaseConfigured={isSupabaseConfigured}
@@ -846,7 +1022,7 @@ function App() {
           {activeTab === 'clients' && (
             <ClientsView 
               clients={clients} 
-              currentUser={currentUser} 
+              currentUser={effectiveUser} 
               profiles={profiles}
               onCreateClient={handleCreateClient} 
               onSelectClientForCarnet={handleQuickLinkNewCarnet} 
@@ -855,7 +1031,7 @@ function App() {
           )}
           {activeTab === 'carnets' && (
             <CarnetsView
-              carnets={carnets} clients={clients} deposits={deposits} currentUser={currentUser}
+              carnets={carnets} clients={clients} deposits={deposits} currentUser={effectiveUser}
               profiles={profiles}
               onCreateCarnet={handleCreateCarnet} onAddDeposit={handleAddDeposit}
               onUpdateDailyMise={handleUpdateDailyMise} onRequestWithdrawal={handleRequestWithdrawal}
@@ -867,25 +1043,66 @@ function App() {
             />
           )}
           {activeTab === 'withdrawals' && (
-            <WithdrawalsView requests={requests} currentUser={currentUser} onReviewRequest={handleReviewRequest} />
+            <WithdrawalsView requests={requests} currentUser={effectiveUser} onReviewRequest={handleReviewRequest} />
           )}
           {activeTab === 'ledger' && (
-            <LedgerView ledger={ledger} currentUser={currentUser} rewards={rewards} snapshots={snapshots} />
+            <LedgerView ledger={ledger} currentUser={effectiveUser} rewards={rewards} snapshots={snapshots} />
           )}
           {activeTab === 'stats' && (
-            <StatisticsView carnets={carnets} ledger={ledger} currentUser={currentUser} deposits={deposits} profiles={profiles} />
+            <StatisticsView carnets={carnets} ledger={ledger} currentUser={effectiveUser} deposits={deposits} profiles={profiles} />
           )}
           {activeTab === 'payroll' && (
             <PayrollView
               ledger={ledger}
               profiles={profiles}
               payouts={payouts}
-              currentUser={currentUser}
+              currentUser={effectiveUser}
               onPayAgent={handlePayAgent}
             />
           )}
         </div>
       </main>
+
+      {/* Center Overlay Deposit Success Modal */}
+      {depositSuccessModalData && (
+        <div className="deposit-center-modal-backdrop" onClick={() => dismissDepositModal()}>
+          <div className="deposit-center-modal-card" onClick={e => e.stopPropagation()}>
+            <div style={{ width: '64px', height: '64px', borderRadius: '50%', backgroundColor: 'var(--success-bg)', color: 'var(--success-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px auto', fontSize: '32px', border: '2px solid var(--success-border)' }}>
+              ✓
+            </div>
+            <h3 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-dark)', marginBottom: '8px' }}>
+              Transaction de Dépôt Réussie !
+            </h3>
+            <p style={{ fontSize: '14px', color: 'var(--text-medium)', marginBottom: '20px' }}>
+              Le versement a été validé et enregistré dans le Grand Livre.
+            </p>
+
+            <div style={{ backgroundColor: 'var(--bg-app)', padding: '16px', borderRadius: '12px', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '20px', border: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                <span style={{ color: 'var(--text-light)' }}>Client Titulaire :</span>
+                <strong style={{ color: 'var(--text-dark)' }}>{depositSuccessModalData.clientName}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                <span style={{ color: 'var(--text-light)' }}>N° Carnet :</span>
+                <code style={{ color: 'var(--primary)', fontWeight: 700 }}>{depositSuccessModalData.carnetNumber}</code>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                <span style={{ color: 'var(--text-light)' }}>Montant Déposé :</span>
+                <strong style={{ color: 'var(--success-color)', fontSize: '16px' }}>{depositSuccessModalData.amount.toLocaleString()} FC</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', alignItems: 'center' }}>
+                <span style={{ color: 'var(--text-light)' }}>Slots Validés :</span>
+                <span className="badge badge-active">+{depositSuccessModalData.slotsCount} Slot(s)</span>
+              </div>
+            </div>
+
+            <button className="btn btn-primary" style={{ width: '100%', padding: '10px', fontWeight: 700 }} onClick={() => dismissDepositModal()}>
+              Continuer (Fermer)
+            </button>
+          </div>
+        </div>
+      )}
+
 
       {/* ── 4. Mobile Bottom Navigation Bar (4 items) ── */}
       <nav className="mobile-bottom-nav no-print">
@@ -929,7 +1146,9 @@ function App() {
           </div>
         </div>
       )}
+      </div>
     </div>
+    </NotificationContext.Provider>
   );
 }
 

@@ -23,5 +23,6 @@ dist-ssr
 *.sln
 *.sw?
 
-.env
-                   
+*.env
+
+supabase/migrations/20260804000001_fix_commission_descriptions.sql            

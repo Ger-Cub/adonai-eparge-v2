@@ -163,10 +163,15 @@ class SimulatedDB {
             const carnet = carnets.find(c => c.id === led.carnet_id);
             const agent = led.agent_id ? profiles.find(p => p.id === led.agent_id) : null;
 
+            const initiatorId = (led as any).created_by || led.agent_id;
+            const initiator = initiatorId ? profiles.find(p => p.id === initiatorId) : null;
+
             return {
                 ...led,
                 carnet_number: carnet ? carnet.carnet_number : 'Inconnu',
-                agent_name: agent ? agent.full_name : undefined
+                agent_name: agent ? agent.full_name : undefined,
+                created_by: (led as any).created_by,
+                initiator_name: initiator ? initiator.full_name : undefined
             };
         });
     }
@@ -282,7 +287,7 @@ class SimulatedDB {
         deposits.push(firstDeposit);
         this.setStorage('carnet_deposits', deposits);
 
-        // Ledger Entry (500 FC fixed fee)
+        // Ledger Entry — 500 FC organisational opening fee collected by the agent
         const ledger = this.getStorage<LedgerEntry>('ledger', MOCK_LEDGER);
         ledger.push({
             id: `led-${Math.floor(10000 + Math.random() * 90000)}`,
@@ -290,34 +295,37 @@ class SimulatedDB {
             agent_id: carnet.agent_id,
             type: 'carnet_sale',
             amount: 500,
-            description: `Frais de vente de carnet (Fixe 500 FC) - Carnet Numéro ${carnetNumber}`,
-            created_at: new Date().toISOString()
+            description: `Cotisation d'ouverture de carnet (500 FC — reversée à l'organisation) - Carnet Numéro ${carnetNumber}`,
+            created_at: new Date().toISOString(),
+            created_by: carnet.agent_id
         });
 
-        // Split commission immediately on carnet creation (first client registered)
+        // Split du 1er dépôt : 50% commission agent de terrain / 50% frais de fonctionnement organisation
         const commissionAmount = carnet.daily_mise;
         const agentPart = commissionAmount * 0.5;
         const orgPart = commissionAmount * 0.5;
 
-        // Save Agent Gain immediately
+        // Commission agent (50% du 1er dépôt)
         ledger.push({
             id: `led-${Math.floor(10000 + Math.random() * 90000)}`,
             carnet_id: newId,
             agent_id: carnet.agent_id,
             type: 'agent_gain',
             amount: agentPart,
-            description: `Commission agent de terrain (50%) - Carnet ${carnetNumber}`,
-            created_at: new Date().toISOString()
+            description: `Commission agent de terrain — 50% du 1er dépôt retenu (${commissionAmount} FC) - Carnet ${carnetNumber}`,
+            created_at: new Date().toISOString(),
+            created_by: carnet.agent_id
         });
 
-        // Save Organisation Gain immediately
+        // Frais de fonctionnement organisation (50% du 1er dépôt)
         ledger.push({
             id: `led-${Math.floor(10000 + Math.random() * 90000)}`,
             carnet_id: undefined,
             type: 'org_gain',
             amount: orgPart,
-            description: `Commission organisation (50%) - Carnet ${carnetNumber}`,
-            created_at: new Date().toISOString()
+            description: `Frais de fonctionnement organisation — 50% du 1er dépôt retenu (${commissionAmount} FC) - Carnet ${carnetNumber}`,
+            created_at: new Date().toISOString(),
+            created_by: carnet.agent_id
         });
 
         this.setStorage('ledger', ledger);
@@ -343,11 +351,11 @@ class SimulatedDB {
 
         const carnet = carnets[idx];
 
-        // Check 24 hour limit in JS
-        const createdTime = new Date(carnet.created_at).getTime();
-        const nowTime = Date.now();
-        if (nowTime - createdTime > 24 * 60 * 60 * 1000) {
-            throw new Error('Les détails opérationnels du carnet ne peuvent plus être modifiés après 24 heures.');
+        // Only allow modification on the same calendar date as creation
+        const createdDate = new Date(carnet.created_at).toLocaleDateString();
+        const todayDate = new Date().toLocaleDateString();
+        if (createdDate !== todayDate) {
+            throw new Error("Les détails opérationnels du carnet ne peuvent être modifiés que le jour de leur création (même date).");
         }
 
         // Get all deposits for this carnet to check the new total slots
@@ -453,6 +461,25 @@ class SimulatedDB {
             this.setStorage('savings_carnets', carnets);
         }
 
+        // Add ledger entry for this deposit
+        try {
+            const ledger = this.getStorage<LedgerEntry>('ledger', MOCK_LEDGER);
+            ledger.push({
+                id: `led-${Math.floor(10000 + Math.random() * 90000)}`,
+                carnet_id: newDeposit.carnet_id,
+                agent_id: newDeposit.created_by,
+                type: 'deposit',
+                amount: newDeposit.amount,
+                description: `Dépôt de ${newDeposit.amount} FC sur le carnet ${carnet.carnet_number}`,
+                created_at: new Date().toISOString(),
+                created_by: newDeposit.created_by
+            });
+            this.setStorage('ledger', ledger);
+        } catch (e) {
+            // non fatal
+            console.warn('Erreur lors de l enregistrement du ledger pour dépôt:', e);
+        }
+
         return newDeposit;
     }
 
@@ -464,6 +491,13 @@ class SimulatedDB {
 
         const deposit = deposits[depIdx];
         const carnetId = deposit.carnet_id;
+
+        // Only allow deletion if the deposit was created on the same calendar date
+        const depDate = new Date(deposit.created_at).toLocaleDateString();
+        const todayDate = new Date().toLocaleDateString();
+        if (depDate !== todayDate) {
+            throw new Error('Annulation impossible : les dépôts ne peuvent être annulés qu\'à la même date que leur enregistrement.');
+        }
 
         // Remove the deposit
         const updatedDeposits = deposits.filter(d => d.id !== depositId);
@@ -517,6 +551,22 @@ class SimulatedDB {
 
         requests.push(newRequest);
         this.setStorage('withdrawal_requests', requests);
+        // Log in ledger as a withdrawal request
+        try {
+            const ledger = this.getStorage<LedgerEntry>('ledger', MOCK_LEDGER);
+            ledger.push({
+                id: `led-${Math.floor(10000 + Math.random() * 90000)}`,
+                carnet_id: request.carnet_id,
+                type: 'withdrawal_request',
+                amount: newRequest.requested_amount,
+                description: `Demande de retrait de ${newRequest.requested_amount} FC pour le carnet ${newRequest.carnet_id}`,
+                created_at: new Date().toISOString(),
+                created_by: newRequest.created_by
+            });
+            this.setStorage('ledger', ledger);
+        } catch (e) {
+            console.warn('Erreur lors de l\'enregistrement du ledger pour demande de retrait:', e);
+        }
         return newRequest;
     }
 
@@ -561,6 +611,22 @@ class SimulatedDB {
                     created_by: validatorId
                 });
                 this.setStorage('withdrawals', withdrawals);
+                // Add ledger entry for the actual withdrawal (liquidation)
+                try {
+                    const ledger = this.getStorage<LedgerEntry>('ledger', MOCK_LEDGER);
+                    ledger.push({
+                        id: `led-${Math.floor(10000 + Math.random() * 90000)}`,
+                        carnet_id: carnet.id,
+                        type: 'withdrawal',
+                        amount: req.requested_amount,
+                        description: `Retrait payé de ${req.requested_amount} FC pour le carnet ${carnet.carnet_number}`,
+                        created_at: new Date().toISOString(),
+                        created_by: validatorId
+                    });
+                    this.setStorage('ledger', ledger);
+                } catch (e) {
+                    console.warn('Erreur lors de l\'enregistrement du ledger pour retrait:', e);
+                }
                 // Note: commissions (agent_gain / org_gain) are recorded at carnet creation,
                 // not at withdrawal. No additional ledger entries here.
             }
@@ -671,6 +737,23 @@ class SimulatedDB {
         };
         payouts.push(newPayout);
         this.setStorage('agent_payouts', payouts);
+        // Log payout in ledger
+        try {
+            const ledger = this.getStorage<LedgerEntry>('ledger', MOCK_LEDGER);
+            ledger.push({
+                id: `led-${Math.floor(10000 + Math.random() * 90000)}`,
+                carnet_id: undefined,
+                agent_id: agentId,
+                type: 'agent_payout',
+                amount: amount,
+                description: `Paiement agent (${amount} FC) vers ${agentId}`,
+                created_at: new Date().toISOString(),
+                created_by: paidBy
+            });
+            this.setStorage('ledger', ledger);
+        } catch (e) {
+            console.warn('Erreur lors de l\'enregistrement du ledger pour paie agent:', e);
+        }
         return newPayout;
     }
 }
@@ -1045,11 +1128,42 @@ class SupabaseDB {
     // 5. Add Deposit
     async addDeposit(deposit: Omit<CarnetDeposit, 'id' | 'slots_count' | 'created_at' | 'updated_at'>): Promise<CarnetDeposit> {
         if (!supabase) throw new Error("Supabase n'est pas configuré.");
+
+        // Fetch carnet details + carnet_number for ledger descriptions
+        const { data: carnet, error: carnetErr } = await supabase
+            .from('savings_carnets')
+            .select('daily_mise, status, carnet_number, agent_id')
+            .eq('id', deposit.carnet_id)
+            .single();
+
+        if (carnetErr || !carnet) throw new Error("Carnet introuvable.");
+
+        if (carnet.status === 'locked') throw new Error("Dépôt refusé : le carnet est verrouillé.");
+        if (carnet.status === 'archived') throw new Error("Dépôt refusé : le carnet est archivé.");
+        if (carnet.status === 'rejected') throw new Error("Dépôt refusé : le carnet a été rejeté.");
+
+        const k = deposit.amount / carnet.daily_mise;
+        if (k !== Math.floor(k) || k <= 0) {
+            throw new Error(`Le montant du dépôt (${deposit.amount} FC) doit être un multiple exact de la mise journalière (${carnet.daily_mise} FC).`);
+        }
+
+        const slotsCount = Math.floor(k);
+
+        // Check if this is the FIRST deposit (no previous deposits on this carnet)
+        const { count: existingCount } = await supabase
+            .from('carnet_deposits')
+            .select('id', { count: 'exact', head: true })
+            .eq('carnet_id', deposit.carnet_id);
+
+        const isFirstDeposit = (existingCount ?? 0) === 0;
+
+        // Insert the deposit
         const { data, error } = await supabase
             .from('carnet_deposits')
             .insert({
                 carnet_id: deposit.carnet_id,
                 amount: deposit.amount,
+                slots_count: slotsCount,
                 created_by: deposit.created_by,
                 updated_by: deposit.created_by
             })
@@ -1057,6 +1171,49 @@ class SupabaseDB {
             .single();
 
         if (error) throw error;
+
+        // If first deposit: create ledger entries for 500 FC org fee + 50/50 commission split
+        if (isFirstDeposit) {
+            const carnetNumber = carnet.carnet_number || deposit.carnet_id;
+            const agentId = carnet.agent_id || deposit.created_by;
+            const dailyMise = carnet.daily_mise;
+
+            const ledgerEntries = [
+                // 1. Cotisation d'ouverture 500 FC → Organisation uniquement
+                {
+                    carnet_id: deposit.carnet_id,
+                    agent_id: agentId,
+                    type: 'carnet_sale' as const,
+                    amount: 500,
+                    description: `Cotisation d'ouverture de carnet (500 FC — reversée à l'organisation) - Carnet ${carnetNumber}`,
+                    created_at: new Date().toISOString()
+                },
+                // 2. Commission agent — 50% du 1er dépôt retenu
+                {
+                    carnet_id: deposit.carnet_id,
+                    agent_id: agentId,
+                    type: 'agent_gain' as const,
+                    amount: dailyMise * 0.5,
+                    description: `Commission agent de terrain — 50% du 1er dépôt retenu (${dailyMise} FC) - Carnet ${carnetNumber}`,
+                    created_at: new Date().toISOString()
+                },
+                // 3. Frais de fonctionnement organisation — 50% du 1er dépôt retenu
+                {
+                    carnet_id: deposit.carnet_id,
+                    agent_id: null,
+                    type: 'org_gain' as const,
+                    amount: dailyMise * 0.5,
+                    description: `Frais de fonctionnement organisation — 50% du 1er dépôt retenu (${dailyMise} FC) - Carnet ${carnetNumber}`,
+                    created_at: new Date().toISOString()
+                }
+            ];
+
+            const { error: ledgerErr } = await supabase.from('ledger').insert(ledgerEntries);
+            if (ledgerErr) {
+                console.warn('Notice: Ledger entries could not be created:', ledgerErr.message);
+            }
+        }
+
         return data;
     }
 

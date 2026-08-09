@@ -55,6 +55,7 @@ export const CarnetsView: React.FC<CarnetsViewProps> = ({
     
     // State for canceling a deposit from the grid
     const [selectedCancelDeposit, setSelectedCancelDeposit] = useState<CarnetDeposit | null>(null);
+    const [confirmDeposit, setConfirmDeposit] = useState<{ carnet_id: string; amount: number; carnet_number?: string } | null>(null);
 
     // HIERARCHICAL FILTERS
     // 1. For Supervisor: filter by Agent
@@ -85,10 +86,23 @@ export const CarnetsView: React.FC<CarnetsViewProps> = ({
         }
     }, [activeCarnetId, activeCarnetDetails]);
 
+    const validateDailyMise = (val: number): string | null => {
+        if (!val || isNaN(val) || val <= 0) return 'La mise doit être supérieure à 0 FC.';
+        if (val > 50000) return 'La mise maximale autorisée est de 50 000 FC.';
+        if (val % 500 !== 0) return 'La mise journalière doit respecter la suite de 500 FC (500, 1000, 1500, 2000... 50000 FC).';
+        return null;
+    };
+
     const handleCreateSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (!selectedClientId) {
-            setMsg({ text: 'Veuillez sélectionner un client.', type: 'error' });
+            alert('Veuillez sélectionner un client.');
+            return;
+        }
+
+        const miseErr = validateDailyMise(dailyMise);
+        if (miseErr) {
+            alert(miseErr);
             return;
         }
 
@@ -106,11 +120,8 @@ export const CarnetsView: React.FC<CarnetsViewProps> = ({
             setFirstDeposit(1000);
             clearQuickLinkClient();
             setCreationModalOpen(false); // Close modal
-
-            setMsg({ text: 'Carnet d\'épargne initié avec succès (Frais de création de 500 FC enregistrés).', type: 'success' });
-            setTimeout(() => setMsg({ text: '', type: '' }), 4000);
         } catch (err: any) {
-            setMsg({ text: err.message || 'Erreur lors de la création.', type: 'error' });
+            alert(err.message || 'Erreur lors de la création.');
         }
     };
 
@@ -118,21 +129,25 @@ export const CarnetsView: React.FC<CarnetsViewProps> = ({
         e.preventDefault();
         if (!activeCarnetDetails) return;
 
+        // Show recap confirmation before submitting
+        setConfirmDeposit({ carnet_id: activeCarnetDetails.id, amount: depositAmount, carnet_number: activeCarnetDetails.carnet_number });
+    };
+
+    const confirmAndAddDeposit = async () => {
+        if (!confirmDeposit) return;
         try {
-            onAddDeposit({
-                carnet_id: activeCarnetDetails.id,
-                amount: depositAmount,
+            await onAddDeposit({
+                carnet_id: confirmDeposit.carnet_id,
+                amount: confirmDeposit.amount,
                 created_by: currentUser.id,
                 updated_by: currentUser.id
             });
-
-            setMsg({ text: `Versement de ${depositAmount} FC validé avec succès.`, type: 'success' });
-            setTimeout(() => setMsg({ text: '', type: '' }), 4000);
-
-            // Reset deposit input field
-            setDepositAmount(activeCarnetDetails.daily_mise);
+            // Reset deposit input if possible
+            if (activeCarnetDetails) setDepositAmount(activeCarnetDetails.daily_mise);
         } catch (err: any) {
-            setMsg({ text: err.message || 'Erreur versement.', type: 'error' });
+            alert(err.message || 'Erreur versement.');
+        } finally {
+            setConfirmDeposit(null);
         }
     };
 
@@ -140,13 +155,17 @@ export const CarnetsView: React.FC<CarnetsViewProps> = ({
         e.preventDefault();
         if (!activeCarnetDetails) return;
 
+        const miseErr = validateDailyMise(editMiseAmount);
+        if (miseErr) {
+            alert(miseErr);
+            return;
+        }
+
         try {
             onUpdateDailyMise(activeCarnetDetails.id, editMiseAmount);
             setIsEditingMise(false);
-            setMsg({ text: `Mise journalière modifiée à ${editMiseAmount} FC.`, type: 'success' });
-            setTimeout(() => setMsg({ text: '', type: '' }), 4000);
         } catch (err: any) {
-            setMsg({ text: err.message || 'Erreur mise.', type: 'error' });
+            alert(err.message || 'Erreur mise.');
         }
     };
 
@@ -163,8 +182,10 @@ export const CarnetsView: React.FC<CarnetsViewProps> = ({
     };
 
     const canEditParam = (createdTime: string) => {
-        const elapsed = Date.now() - new Date(createdTime).getTime();
-        return elapsed < 24 * 60 * 60 * 1000;
+        // Allow edits only on the same calendar date as creation
+        const createdDate = new Date(createdTime).toLocaleDateString();
+        const todayDate = new Date().toLocaleDateString();
+        return createdDate === todayDate;
     };
 
     // Filter Helper: get clients matching the carnet for photo display
@@ -248,6 +269,32 @@ export const CarnetsView: React.FC<CarnetsViewProps> = ({
                     fontSize: '13px'
                 }}>
                     {msg.text}
+                </div>
+            )}
+
+            {/* Confirmation modal before submitting a deposit */}
+            {confirmDeposit && (
+                <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+                    <div style={{ backgroundColor: 'var(--bg-card)', borderRadius: '12px', padding: '24px', maxWidth: '420px', width: '100%' }}>
+                        <h3 style={{ margin: 0, fontSize: '16px' }}>Récapitulatif du dépôt</h3>
+                        <p style={{ marginTop: '8px', fontSize: '13px', color: 'var(--text-light)' }}>Vérifiez les informations avant de confirmer.</p>
+
+                        <div style={{ backgroundColor: 'var(--bg-app)', borderRadius: '8px', padding: '12px', marginTop: '12px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: 'var(--text-light)' }}>Carnet :</span>
+                                <strong>{confirmDeposit.carnet_number || confirmDeposit.carnet_id}</strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px' }}>
+                                <span style={{ color: 'var(--text-light)' }}>Montant à déposer :</span>
+                                <strong style={{ color: 'var(--success-color)' }}>{confirmDeposit.amount.toLocaleString()} FC</strong>
+                            </div>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '18px' }}>
+                            <button className="btn btn-secondary" onClick={() => setConfirmDeposit(null)}>Annuler</button>
+                            <button className="btn btn-primary" onClick={() => confirmAndAddDeposit()}>Accepter et Enregistrer</button>
+                        </div>
+                    </div>
                 </div>
             )}
 
@@ -476,9 +523,9 @@ export const CarnetsView: React.FC<CarnetsViewProps> = ({
                                         {activeCarnetDetails.status === 'locked' && 'Rempli (Clôturable) 🔒'}
                                         {activeCarnetDetails.status === 'archived' && 'Vidé (Archivé) ✅'}
                                     </span>
-                                    {currentUser.role === 'agent' && (
+                                            {currentUser.role === 'agent' && (
                                         <span style={{ fontSize: '11px', color: 'var(--text-light)' }}>
-                                            {canEditParam(activeCarnetDetails.created_at) ? 'Modifiable (Sous 24h)' : 'Lecture seule'}
+                                            {canEditParam(activeCarnetDetails.created_at) ? 'Modifiable (même journée)' : 'Lecture seule'}
                                         </span>
                                     )}
                                 </div>
@@ -516,8 +563,8 @@ export const CarnetsView: React.FC<CarnetsViewProps> = ({
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', width: '100%' }}>
                                         <div>
                                             <span className="form-label" style={{ fontWeight: 700, margin: 0 }}>Quadrillage des 31 Dépôts du Carnet</span>
-                                            <span style={{ fontSize: '11px', color: 'var(--text-light)', display: 'block', marginTop: '2px' }}>
-                                                💡 Cliquez sur une case remplie pour voir les détails ou annuler le dépôt (sous 24h)
+                                                <span style={{ fontSize: '11px', color: 'var(--text-light)', display: 'block', marginTop: '2px' }}>
+                                                💡 Cliquez sur une case remplie pour voir les détails ou annuler le dépôt (même journée)
                                             </span>
                                         </div>
                                         <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--primary)', flexShrink: 0 }}>
@@ -585,7 +632,7 @@ export const CarnetsView: React.FC<CarnetsViewProps> = ({
                                                              <div className="slot-tooltip">
                                                                  {isFilled ? (
                                                                      dep ? (
-                                                                         `Case ${index + 1} : ${activeCarnetDetails.daily_mise.toLocaleString()} FC (Dépôt du ${new Date(dep.created_at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}) ${isDeletable ? ' - Cliquez pour annuler' : ' - Plus de 24h (non annulable)'}`
+                                                                         `Case ${index + 1} : ${activeCarnetDetails.daily_mise.toLocaleString()} FC (Dépôt du ${new Date(dep.created_at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}) ${isDeletable ? ' - Cliquez pour annuler' : ' - Hors même journée (non annulable)'}`
                                                                      ) : `Case ${index + 1} : ${activeCarnetDetails.daily_mise.toLocaleString()} FC (Validé)`
                                                                  ) : `Case ${index + 1} : Vide`}
                                                              </div>
@@ -603,7 +650,7 @@ export const CarnetsView: React.FC<CarnetsViewProps> = ({
                                         {!isEditingMise ? (
                                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                                 <span style={{ fontSize: '12px', color: 'var(--text-medium)' }}>
-                                                    ⚙️ Une erreur de saisie de la mise ? Modifiez-la avant la limite de 24h.
+                                                    ⚙️ Une erreur de saisie de la mise ? Modifiez-la pendant la même journée de création.
                                                 </span>
                                                 <button
                                                     className="btn btn-secondary"
@@ -619,19 +666,18 @@ export const CarnetsView: React.FC<CarnetsViewProps> = ({
                                         ) : (
                                             <form onSubmit={handleMiseEdit} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                                                 <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-medium)' }}>Nouvelle mise :</label>
-                                                <select
+                                                <input
+                                                    type="number"
                                                     className="form-control"
                                                     style={{ flexGrow: 1, maxWidth: '200px', padding: '6px 12px', height: 'auto' }}
                                                     value={editMiseAmount}
-                                                    onChange={e => setEditMiseAmount(parseInt(e.target.value))}
-                                                >
-                                                    <option value={500}>500 FC</option>
-                                                    <option value={1000}>1 000 FC</option>
-                                                    <option value={2000}>2 000 FC</option>
-                                                    <option value={3000}>3 000 FC</option>
-                                                    <option value={5000}>5 000 FC</option>
-                                                    <option value={10000}>10 000 FC</option>
-                                                </select>
+                                                    min={500}
+                                                    max={50000}
+                                                    step={500}
+                                                    placeholder="Ex: 500, 1000, 1500..."
+                                                    onChange={e => setEditMiseAmount(parseInt(e.target.value) || 0)}
+                                                    required
+                                                />
                                                 <button type="submit" className="btn btn-primary" style={{ padding: '6px 14px', fontSize: '12px' }}>Confirmer</button>
                                                 <button type="button" className="btn btn-secondary" style={{ padding: '6px 14px', fontSize: '12px' }} onClick={() => setIsEditingMise(false)}>Annuler</button>
                                             </form>
@@ -974,20 +1020,21 @@ export const CarnetsView: React.FC<CarnetsViewProps> = ({
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
                                 <div className="form-group">
                                     <label className="form-label">Mise journalière (FC)</label>
-                                    <select
+                                    <input
+                                        type="number"
                                         className="form-control"
                                         value={dailyMise}
+                                        min={500}
+                                        max={50000}
+                                        step={500}
+                                        placeholder="Ex: 500, 1000, 1500..."
                                         onChange={e => {
-                                            const v = parseInt(e.target.value);
+                                            const v = parseInt(e.target.value) || 0;
                                             setDailyMise(v);
                                             setFirstDeposit(v);
                                         }}
-                                    >
-                                        <option value={1000}>1 000 FC</option>
-                                        <option value={2000}>2 000 FC</option>
-                                        <option value={5000}>5 000 FC</option>
-                                        <option value={10000}>10 000 FC</option>
-                                    </select>
+                                        required
+                                    />
                                 </div>
 
                                 <div className="form-group">
@@ -1016,7 +1063,7 @@ export const CarnetsView: React.FC<CarnetsViewProps> = ({
                                 color: 'var(--text-medium)',
                                 marginBottom: '20px'
                             }}>
-                                ⚖️ <strong>Frais d'ouverture :</strong> Une commission fixe de <strong>500 FC</strong> est prélevée. Le solde du 1er dépôt (minimum {dailyMise} FC) est retenu comme frais opérationnels à la liquidation du carnet.
+                                ⚖️ <strong>Frais d'ouverture :</strong> Une cotisation fixe de <strong>500 FC</strong> est perçue par l'agent au profit de l'organisation (aucune commission agent sur ce montant). Le solde du 1er dépôt ({dailyMise} FC minimum) est retenu et réparti : <strong>50 %</strong> de commission pour l'agent de terrain et <strong>50 %</strong> de frais de fonctionnement pour l'organisation.
                             </div>
 
                             <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
@@ -1100,18 +1147,18 @@ export const CarnetsView: React.FC<CarnetsViewProps> = ({
                                     <span style={{ fontSize: '13px', color: 'var(--text-light)' }}>Statut d'annulation:</span>
                                     {canEditParam(selectedCancelDeposit.created_at) ? (
                                         <span style={{ fontSize: '11px', color: 'var(--success-color)', fontWeight: 700, backgroundColor: 'rgba(16, 185, 129, 0.1)', padding: '2px 8px', borderRadius: '4px' }}>
-                                            Annulable (Moins de 24h)
+                                            Annulable (même journée)
                                         </span>
                                     ) : (
                                         <span style={{ fontSize: '11px', color: 'var(--error-color)', fontWeight: 700, backgroundColor: 'rgba(239, 68, 68, 0.1)', padding: '2px 8px', borderRadius: '4px' }}>
-                                            Non-annulable (+ de 24h)
+                                            Non-annulable (hors même journée)
                                         </span>
                                     )}
                                 </div>
                             </div>
 
-                            {canEditParam(selectedCancelDeposit.created_at) ? (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                        {canEditParam(selectedCancelDeposit.created_at) ? (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                     <div style={{ backgroundColor: 'rgba(239, 68, 68, 0.05)', border: '1px solid rgba(239, 68, 68, 0.15)', padding: '12px', borderRadius: '8px', fontSize: '12px', color: 'var(--error-color)' }}>
                                         ⚠️ L'annulation supprimera définitivement ce versement de la grille du carnet. Le solde sera mis à jour en conséquence.
                                     </div>
@@ -1134,10 +1181,10 @@ export const CarnetsView: React.FC<CarnetsViewProps> = ({
                                         </button>
                                     </div>
                                 </div>
-                            ) : (
+                                    ) : (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                     <div style={{ backgroundColor: 'var(--bg-app)', border: '1px solid var(--border)', padding: '12px', borderRadius: '8px', fontSize: '12px', color: 'var(--text-medium)' }}>
-                                        ℹ️ Conformément aux règles de sécurité, un versement ne peut plus être annulé par un agent de terrain après une période de 24 heures. Veuillez contacter un administrateur principal pour toute correction exceptionnelle.
+                                        ℹ️ Conformément aux règles de sécurité, un versement ne peut plus être annulé par un agent de terrain hors de la même journée de création. Veuillez contacter un administrateur principal pour toute correction exceptionnelle.
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                                         <button type="button" className="btn btn-secondary" onClick={() => setSelectedCancelDeposit(null)}>

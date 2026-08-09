@@ -1863,3 +1863,145 @@ textarea.form-control {
   background-color: var(--primary-hover) !important;
   filter: brightness(1.1);
 }
+
+/* ── 🧡 IMPERSONATION BANNER & SELECTORS ── */
+.impersonation-banner {
+  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+  color: #ffffff;
+  padding: 6px 20px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(234, 88, 12, 0.3);
+  z-index: 10000;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.btn-exit-impersonation {
+  background-color: rgba(255, 255, 255, 0.2);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.btn-exit-impersonation:hover {
+  background-color: white;
+  color: #ea580c;
+  border-color: white;
+}
+
+.impersonate-sidebar-box {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(217, 119, 6, 0.08) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-radius: 10px;
+  padding: 10px;
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.impersonate-sidebar-label {
+  font-size: 10px;
+  font-weight: 800;
+  color: #d97706;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.impersonate-sidebar-select {
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(245, 158, 11, 0.5);
+  background-color: var(--bg-card);
+  color: var(--text-dark);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+}
+
+.impersonate-topbar-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.12) 0%, rgba(217, 119, 6, 0.06) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  padding: 4px 10px;
+  border-radius: 8px;
+}
+
+.impersonate-topbar-select {
+  background: transparent;
+  border: none;
+  color: #b45309;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  outline: none;
+}
+
+/* ── 🎯 DEPOSIT CENTER OVERLAY MODAL ── */
+.deposit-center-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(15, 23, 42, 0.7);
+  backdrop-filter: blur(6px);
+  z-index: 10500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: fadeIn 0.25s ease-out;
+}
+
+.deposit-center-modal-card {
+  background: var(--bg-card);
+  border: 2px solid var(--success-color);
+  box-shadow: 0 25px 50px -12px rgba(16, 185, 129, 0.3);
+  border-radius: 20px;
+  padding: 32px 28px;
+  max-width: 440px;
+  width: 100%;
+  text-align: center;
+  animation: scaleUp 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleUp {
+  from { opacity: 0; transform: scale(0.85); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* Retention Badge inside push notifications header */
+.notification-retention-badge {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--primary);
+  background-color: var(--primary-light);
+  padding: 2px 8px;
+  border-radius: 99px;
+  border: 1px solid rgba(92, 59, 254, 0.2);
+}
+

@@ -1,6 +1,14 @@
 export type UserRole = 'super_admin' | 'admin_principal' | 'supervisor' | 'agent';
 export type CarnetStatus = 'pending' | 'active' | 'rejected' | 'locked' | 'archived';
-export type LedgerEntryType = 'carnet_sale' | 'agent_gain' | 'org_gain';
+export type LedgerEntryType =
+    | 'carnet_sale'
+    | 'agent_gain'
+    | 'org_gain'
+    | 'deposit'
+    | 'create_carnet'
+    | 'withdrawal_request'
+    | 'withdrawal'
+    | 'agent_payout';
 export type WithdrawalRequestStatus = 'pending' | 'approved' | 'rejected';
 
 export interface UserProfile {
@@ -112,6 +120,10 @@ export interface LedgerEntry {
     // Join helper
     carnet_number?: string;
     agent_name?: string;
+    // Who initiated the operation (user id)
+    created_by?: string;
+    // Human readable initiator name
+    initiator_name?: string;
 }
 
 export interface AgentMonthlyReward {

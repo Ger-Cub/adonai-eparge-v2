@@ -17,6 +17,7 @@ export const WithdrawalsView: React.FC<WithdrawalsProps> = ({
     const [reason, setReason] = useState('');
     const [msg, setMsg] = useState('');
     const [subTab, setSubTab] = useState<'pending' | 'history'>('pending');
+    const [pendingApprove, setPendingApprove] = useState<string | null>(null);
 
     const isAdmin = currentUser.role === 'super_admin' || currentUser.role === 'admin_principal';
 
@@ -30,14 +31,19 @@ export const WithdrawalsView: React.FC<WithdrawalsProps> = ({
         .sort((a, b) => new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime());
 
     const handleApprove = (id: string) => {
-        if (window.confirm('Voulez-vous valider et approuver ce retrait ? Cette action est irréversible, archivera le carnet et distribuera les fonds.')) {
-            try {
-                onReviewRequest(id, 'approved');
-                setMsg('Retrait approuvé et archivé.');
-                setTimeout(() => setMsg(''), 4000);
-            } catch (err: any) {
-                alert(err.message || 'Erreur lors de la validation.');
-            }
+        setPendingApprove(id);
+    };
+
+    const confirmApprove = (id: string | null) => {
+        if (!id) return;
+        try {
+            onReviewRequest(id, 'approved');
+            setMsg('Retrait approuvé et archivé.');
+            setTimeout(() => setMsg(''), 4000);
+        } catch (err: any) {
+            alert(err.message || 'Erreur lors de la validation.');
+        } finally {
+            setPendingApprove(null);
         }
     };
 
@@ -82,20 +88,7 @@ export const WithdrawalsView: React.FC<WithdrawalsProps> = ({
                 </div>
             </div>
 
-            {msg && (
-                <div style={{
-                    padding: '12px',
-                    borderRadius: '8px',
-                    marginBottom: '20px',
-                    backgroundColor: 'var(--success-bg)',
-                    color: '#047857',
-                    border: '1px solid var(--success-border)',
-                    fontWeight: 600,
-                    fontSize: '13px'
-                }}>
-                    {msg}
-                </div>
-            )}
+
 
             {/* Rejection Form Modal-Panel */}
             {rejectId && (
@@ -122,6 +115,20 @@ export const WithdrawalsView: React.FC<WithdrawalsProps> = ({
                                 <button type="submit" className="btn btn-danger">Confirmer Rejet</button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Approve confirmation modal */}
+            {pendingApprove && (
+                <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200 }}>
+                    <div style={{ backgroundColor: 'var(--bg-card)', borderRadius: '12px', padding: '20px', maxWidth: '520px', width: '100%' }}>
+                        <h3 style={{ margin: 0 }}>Confirmer l'approbation</h3>
+                        <p style={{ marginTop: '8px', color: 'var(--text-light)' }}>Cette action est irréversible et archivera le carnet. Confirmez pour poursuivre.</p>
+                        <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '16px' }}>
+                            <button className="btn btn-secondary" onClick={() => setPendingApprove(null)}>Annuler</button>
+                            <button className="btn btn-primary" onClick={() => confirmApprove(pendingApprove)}>Accepter & Valider</button>
+                        </div>
                     </div>
                 </div>
             )}

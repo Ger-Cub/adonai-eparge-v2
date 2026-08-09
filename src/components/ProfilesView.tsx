@@ -27,6 +27,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({
     const [showPassword, setShowPassword] = useState(false);
     const [targetRole, setTargetRole] = useState<UserRole>('agent');
     const [msg, setMsg] = useState({ text: '', type: '' });
+    const [pendingProfile, setPendingProfile] = useState<null | { profile: Omit<UserProfile, 'id' | 'created_at' | 'updated_at'> & { email?: string; password?: string }, parentId?: string }>(null);
 
     // Determine which roles current user can create
     const allowedRoles = React.useMemo<UserRole[]>(() => {
@@ -93,22 +94,29 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({
             return;
         }
 
-        try {
-            const associatedParentId =
-                currentUser.role === 'super_admin' ? currentUser.id // Admin principal created by Superadmin
-                    : currentUser.role === 'admin_principal' ? currentUser.id // Supervisor created by Admin
-                        : currentUser.role === 'supervisor' ? currentUser.id // Agent created by Supervisor
-                            : undefined;
+        const associatedParentId =
+            currentUser.role === 'super_admin' ? currentUser.id
+                : currentUser.role === 'admin_principal' ? currentUser.id
+                    : currentUser.role === 'supervisor' ? currentUser.id
+                        : undefined;
 
-            onCreateProfile({
+        setPendingProfile({
+            profile: {
                 role: targetRole,
                 full_name: fullName,
                 phone: phone,
                 created_by: currentUser.id,
                 email: isSupabaseConfigured ? email : undefined,
                 password: isSupabaseConfigured ? password : undefined
-            }, associatedParentId);
+            },
+            parentId: associatedParentId
+        });
+    };
 
+    const confirmAndCreateProfile = async () => {
+        if (!pendingProfile) return;
+        try {
+            await onCreateProfile(pendingProfile.profile, pendingProfile.parentId);
             setFullName('');
             setPhone('');
             setEmail('');
@@ -117,6 +125,8 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({
             setTimeout(() => setMsg({ text: '', type: '' }), 4000);
         } catch (err: any) {
             setMsg({ text: err.message || 'Erreur lors de la création.', type: 'error' });
+        } finally {
+            setPendingProfile(null);
         }
     };
 
@@ -160,20 +170,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({
                 </div>
             </div>
 
-            {msg.text && (
-                <div style={{
-                    padding: '12px',
-                    borderRadius: '8.px',
-                    marginBottom: '20px',
-                    backgroundColor: msg.type === 'success' ? 'var(--success-bg)' : 'var(--error-bg)',
-                    color: msg.type === 'success' ? '#047857' : '#b91c1c',
-                    border: `1.px solid ${msg.type === 'success' ? 'var(--success-border)' : 'var(--error-border)'}`,
-                    fontWeight: 600,
-                    fontSize: '13px'
-                }}>
-                    {msg.text}
-                </div>
-            )}
+
 
             {/* Creation form based on role limitations */}
             {allowedRoles.length > 0 && (
@@ -279,6 +276,32 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({
                                 </button>
                             </div>
                         </form>
+                        {pendingProfile && (
+                            <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200 }}>
+                                <div style={{ backgroundColor: 'var(--bg-card)', borderRadius: '12px', padding: '20px', maxWidth: '520px', width: '100%' }}>
+                                    <h3 style={{ margin: 0 }}>Confirmer la création du compte</h3>
+                                    <p style={{ marginTop: '8px', color: 'var(--text-light)' }}>Vérifiez les informations puis confirmez.</p>
+                                    <div style={{ backgroundColor: 'var(--bg-app)', padding: '12px', borderRadius: '8px', marginTop: '12px' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                            <span style={{ color: 'var(--text-light)' }}>Nom :</span>
+                                            <strong>{pendingProfile.profile.full_name}</strong>
+                                        </div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px' }}>
+                                            <span style={{ color: 'var(--text-light)' }}>Téléphone :</span>
+                                            <strong>{pendingProfile.profile.phone}</strong>
+                                        </div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px' }}>
+                                            <span style={{ color: 'var(--text-light)' }}>Rôle :</span>
+                                            <strong>{getRoleLabel(pendingProfile.profile.role)}</strong>
+                                        </div>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '16px' }}>
+                                        <button className="btn btn-secondary" onClick={() => setPendingProfile(null)}>Annuler</button>
+                                        <button className="btn btn-primary" onClick={() => confirmAndCreateProfile()}>Accepter et Créer</button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}

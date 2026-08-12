@@ -16,6 +16,7 @@ import { AuthScreen } from './components/AuthScreen';
 import { CarnetsView } from './components/CarnetsView';
 import { WithdrawalsView } from './components/WithdrawalsView';
 import { LedgerView } from './components/LedgerView';
+import { HistoryView } from './components/HistoryView';
 import { StatisticsView } from './components/StatisticsView';
 import { PayrollView } from './components/PayrollView';
 import logoAdonai from './assets/logo-adonai.jpg';
@@ -758,6 +759,7 @@ function App() {
   const sidebarExtraItems = [
     { id: 'profiles', icon: <Users size={18} />, label: 'Profils & Hiérarchie' },
     { id: 'ledger', icon: <BookOpen size={18} />, label: 'Grand Livre & Exports' },
+    { id: 'history', icon: <CheckCircle size={18} />, label: 'Historique' },
   ];
 
   if (effectiveUser.role === 'admin_principal' || effectiveUser.role === 'super_admin') {
@@ -1047,6 +1049,17 @@ function App() {
           )}
           {activeTab === 'ledger' && (
             <LedgerView ledger={ledger} currentUser={effectiveUser} rewards={rewards} snapshots={snapshots} />
+          )}
+          {activeTab === 'history' && (
+            <HistoryView
+              deposits={deposits}
+              requests={requests}
+              ledger={ledger}
+              payouts={payouts}
+              profiles={profiles}
+              clients={clients}
+              currentUser={effectiveUser}
+            />
           )}
           {activeTab === 'stats' && (
             <StatisticsView carnets={carnets} ledger={ledger} currentUser={effectiveUser} deposits={deposits} profiles={profiles} />

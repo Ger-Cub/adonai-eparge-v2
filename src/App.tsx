@@ -35,7 +35,7 @@ function App() {
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [impersonatedUser, setImpersonatedUser] = useState<UserProfile | null>(null);
-  const effectiveUser = impersonatedUser ?? currentUser;
+  const effectiveUser = (impersonatedUser ?? currentUser) as UserProfile;
 
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
@@ -347,7 +347,7 @@ function App() {
           const car = loadedCarnets.find(c => c.id === r.carnet_id);
           return car && (agentIdentifiers.includes(car.agent_id) || agentIdentifiers.includes(car.created_by));
         }));
-        setLedger(loadedLedger.filter(l => agentIdentifiers.includes(l.agent_id)));
+        setLedger(loadedLedger.filter(l => agentIdentifiers.includes(l.agent_id ?? '')));
       }
 
       setDeposits(loadedDeposits);
@@ -549,7 +549,7 @@ function App() {
     }
   };
 
-  const dismissDepositModal = (carnetNum?: string, clientName?: string, amount?: number, newDepId?: string) => {
+  const dismissDepositModal = (amount?: number, newDepId?: string) => {
     if (depositModalTimerRef.current) clearTimeout(depositModalTimerRef.current);
     if (depositSuccessModalData || amount) {
       const amt = amount ?? depositSuccessModalData?.amount ?? 0;
@@ -588,12 +588,7 @@ function App() {
       // 2. Auto-close after 2.5s and trigger toast notification
       if (depositModalTimerRef.current) clearTimeout(depositModalTimerRef.current);
       depositModalTimerRef.current = setTimeout(() => {
-        dismissDepositModal(
-          targetCarnet?.carnet_number,
-          targetClient?.name,
-          deposit.amount,
-          newDep.id
-        );
+        dismissDepositModal(deposit.amount, newDep.id);
       }, 2500);
 
       await refreshData(effectiveUser);
@@ -1058,7 +1053,6 @@ function App() {
               payouts={payouts}
               profiles={profiles}
               clients={clients}
-              currentUser={effectiveUser}
             />
           )}
           {activeTab === 'stats' && (

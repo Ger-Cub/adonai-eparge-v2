@@ -170,6 +170,12 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({
                 </div>
             </div>
 
+            {msg.text && (
+                <div style={{ padding: '10px 16px', margin: '8px 0', borderRadius: 8, backgroundColor: 'var(--bg-app)', border: '1px solid var(--border)', color: msg.type === 'success' ? 'var(--success-color)' : 'var(--error-color)' }}>
+                    {msg.text}
+                </div>
+            )}
+
 
 
             {/* Creation form based on role limitations */}

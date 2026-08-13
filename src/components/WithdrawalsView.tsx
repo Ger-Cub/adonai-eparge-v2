@@ -88,6 +88,12 @@ export const WithdrawalsView: React.FC<WithdrawalsProps> = ({
                 </div>
             </div>
 
+            {msg && (
+                <div style={{ padding: '10px 16px', margin: '8px 0', borderRadius: 8, backgroundColor: 'var(--bg-app)', border: '1px solid var(--border)', color: 'var(--text-medium)' }}>
+                    {msg}
+                </div>
+            )}
+
 
 
             {/* Rejection Form Modal-Panel */}

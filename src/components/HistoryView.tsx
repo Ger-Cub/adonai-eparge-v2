@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { CarnetDeposit, WithdrawalRequest, LedgerEntry, AgentPayout, UserProfile, Client } from '../lib/types';
 
 type Props = {
@@ -8,7 +8,6 @@ type Props = {
   payouts: AgentPayout[];
   profiles: UserProfile[];
   clients: Client[];
-  currentUser: UserProfile;
 };
 
 type HistoryEvent = {
@@ -29,8 +28,7 @@ export const HistoryView = ({
   ledger,
   payouts,
   profiles,
-  clients,
-  currentUser
+  clients
 }: Props) => {
   const [filterType, setFilterType] = useState('all');
   const [q, setQ] = useState('');

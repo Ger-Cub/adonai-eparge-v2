@@ -131,13 +131,7 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
         window.print();
     };
 
-    const getEntryLabel = (type: LedgerEntry['type']) => {
-        switch (type) {
-            case 'carnet_sale': return <span className="badge badge-active" style={{ backgroundColor: 'rgba(56, 189, 248, 0.1)', color: '#0284c7', borderColor: 'rgba(56, 189, 248, 0.2)' }}>Cotisation Organisation (500 FC)</span>;
-            case 'agent_gain': return <span className="badge badge-locked">Commission Agent (50% 1er dépôt)</span>;
-            case 'org_gain': return <span className="badge badge-active">Frais Fonct. Organisation (50% 1er dépôt)</span>;
-        }
-    };
+    
 
     // Org revenue entries: carnet_sale (500 FC) + org_gain (50% first deposit)
     const orgRevenueEntries = useMemo(() => {

@@ -769,7 +769,7 @@ function App() {
 
   return (
     <NotificationContext.Provider value={{ showNotification }}>
-    <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100vh', overflow: 'hidden' }}>
+    <div className="app-root">
       {/* ── SUPER ADMIN IMPERSONATION BANNER ── */}
       {impersonatedUser && (
         <div className="impersonation-banner no-print">
@@ -785,7 +785,7 @@ function App() {
         </div>
       )}
 
-      <div className="app-container" style={{ flex: 1, minHeight: 0, height: '100%' }}>
+      <div className="app-container">
 
       {/* ── 1. DESKTOP Sidebar ── */}
       <aside className="sidebar no-print">

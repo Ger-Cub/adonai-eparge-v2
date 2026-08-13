@@ -978,9 +978,10 @@ export const CarnetsView: React.FC<CarnetsViewProps> = ({
                         borderRadius: '16px',
                         width: '100%',
                         maxWidth: '480px',
+                        maxHeight: '90vh',
+                        overflowY: 'auto',
                         border: '1px solid var(--border)',
-                        boxShadow: 'var(--shadow-lg)',
-                        overflow: 'hidden'
+                        boxShadow: 'var(--shadow-lg)'
                     }} onClick={e => e.stopPropagation()}>
                         
                         {/* Modal Header */}

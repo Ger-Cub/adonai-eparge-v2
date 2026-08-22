@@ -37,3 +37,10 @@ Cette application permet de gérer des carnets d'épargne, d'enregistrer des dé
 ---
 
 Ce README sera mis à jour au fur et à mesure de l'avancement des fonctionnalités et des retours de l'équipe.
+
+
+
+
+
+
+Ajoute une fonctionnalité du role de l'admin pour surspendre temporairement un agent de terrain. Un fois suspendu, il ne peut pas accéder à l'application pour modifier les données sur l'application. une message lui informant qu'il a été suspendu s'affiche à son écran meme s'il est connecté et lui bloque toute action.

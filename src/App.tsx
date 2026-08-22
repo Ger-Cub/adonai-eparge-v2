@@ -503,6 +503,15 @@ function App() {
 
   const handleDeleteProfile = async (id: string) => {
     try {
+      // If deleting an agent, cascade delete their clients and carnets first
+      const target = profiles.find(p => p.id === id);
+      if (target && target.role === 'agent') {
+        const agentClients = clients.filter(c => c.created_by === id);
+        for (const cl of agentClients) {
+          await (dbSimulated as any).deleteClient(cl.id);
+        }
+      }
+
       await dbSimulated.deleteProfile(id);
       showNotification('Profil Supprimé', `Profil supprimé de l'organisation.`, 'warning');
       await refreshData();
@@ -605,6 +614,28 @@ function App() {
       await refreshData();
     } catch (err: any) {
       showNotification('Erreur', err.message || 'Impossible de supprimer ce versement.', 'warning');
+    }
+  };
+
+  const handleDeleteClient = async (clientId: string) => {
+    if (!currentUser) return;
+    try {
+      await (dbSimulated as any).deleteClient(clientId);
+      showNotification('Client Supprimé', `Client et ses carnets supprimés.`, 'warning');
+      await refreshData(effectiveUser);
+    } catch (err: any) {
+      showNotification('Erreur', err.message || 'Impossible de supprimer le client.', 'warning');
+    }
+  };
+
+  const handleDeleteCarnet = async (carnetId: string) => {
+    if (!currentUser) return;
+    try {
+      await (dbSimulated as any).deleteCarnet(carnetId);
+      showNotification('Carnet Supprimé', `Le carnet et ses données associées ont été supprimés.`, 'warning');
+      await refreshData(effectiveUser);
+    } catch (err: any) {
+      showNotification('Erreur', err.message || 'Impossible de supprimer le carnet.', 'warning');
     }
   };
 
@@ -1024,6 +1055,7 @@ function App() {
               onCreateClient={handleCreateClient} 
               onSelectClientForCarnet={handleQuickLinkNewCarnet} 
               onCreateCarnet={handleCreateCarnet}
+              onDeleteClient={handleDeleteClient}
             />
           )}
           {activeTab === 'carnets' && (
@@ -1033,6 +1065,7 @@ function App() {
               onCreateCarnet={handleCreateCarnet} onAddDeposit={handleAddDeposit}
               onUpdateDailyMise={handleUpdateDailyMise} onRequestWithdrawal={handleRequestWithdrawal}
               onDeleteDeposit={handleDeleteDeposit}
+              onDeleteCarnet={handleDeleteCarnet}
               requests={requests}
               onCancelWithdrawalRequest={handleCancelWithdrawalRequest}
               selectedClientFromQuickLink={selectedClientForNewCarnet}

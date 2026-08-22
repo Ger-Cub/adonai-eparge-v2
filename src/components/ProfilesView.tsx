@@ -132,18 +132,30 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({
 
     const handleDelete = (id: string, roleToDelete: UserRole) => {
         // Role limitation check
-        if (currentUser.role === 'super_admin' && roleToDelete !== 'admin_principal') {
-            alert('Un Super Admin ne peut supprimer que les Admins Principaux.');
-            return;
-        }
-        if (currentUser.role === 'admin_principal' && roleToDelete !== 'supervisor') {
-            alert('Un Admin Principal ne peut supprimer que les Superviseurs.');
-            return;
-        }
-        if (currentUser.role === 'supervisor' && roleToDelete !== 'agent') {
-            alert('Un Superviseur ne peut supprimer que les Agents de terrain.');
-            return;
-        }
+            // Allow deletions following hierarchy, and permit admins to delete agents as requested
+            if (roleToDelete === 'agent') {
+                // agents may be deleted by supervisor, admin_principal or super_admin
+                if (!(currentUser.role === 'super_admin' || currentUser.role === 'admin_principal' || currentUser.role === 'supervisor')) {
+                    alert('Vous n\'avez pas la permission de supprimer cet agent.');
+                    return;
+                }
+            } else if (roleToDelete === 'supervisor') {
+                // supervisors can be deleted by admin_principal or super_admin
+                if (!(currentUser.role === 'super_admin' || currentUser.role === 'admin_principal')) {
+                    alert('Vous n\'avez pas la permission de supprimer ce superviseur.');
+                    return;
+                }
+            } else if (roleToDelete === 'admin_principal') {
+                // admin_principal can be deleted only by super_admin
+                if (currentUser.role !== 'super_admin') {
+                    alert('Vous n\'avez pas la permission de supprimer cet administrateur principal.');
+                    return;
+                }
+            } else if (roleToDelete === 'super_admin') {
+                // never allow deleting another super_admin here
+                alert('Impossible de supprimer un Super Admin via cette interface.');
+                return;
+            }
 
         if (window.confirm('Voulez-vous vraiment supprimer cet utilisateur ?')) {
             onDeleteProfile(id);

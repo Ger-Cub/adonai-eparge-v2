@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import * as XLSX from 'xlsx';
 import type { CarnetDeposit, WithdrawalRequest, LedgerEntry, AgentPayout, UserProfile, Client } from '../lib/types';
 
 type Props = {
@@ -239,6 +240,37 @@ export const HistoryView = ({
     URL.revokeObjectURL(url);
   };
 
+  // Export XLSX function (uses SheetJS)
+  const exportXlsx = (events: HistoryEvent[]) => {
+    try {
+      const rows = events.map(ev => ({
+        date: ev.date ? (isNaN(Date.parse(ev.date)) ? '' : new Date(ev.date).toISOString()) : '',
+        type: ev.kind,
+        amount: ev.amount ?? '',
+        carnet: ev.carnet_number ?? '',
+        client: ev.client_name ?? '',
+        agent: ev.agent_name ?? ev.created_by ?? '',
+        details: ev.description ?? ''
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Historique');
+      const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      const blob = new Blob([wbout], { type: 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `history_export_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export XLSX failed', err);
+    }
+  };
+
   return (
     <div>
       <div className="section-header no-print">
@@ -294,6 +326,9 @@ export const HistoryView = ({
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button className="btn btn-primary" onClick={() => exportCsv(filteredEvents)}>
             Export CSV (vue actuelle)
+          </button>
+          <button className="btn btn-primary" onClick={() => exportXlsx(filteredEvents)}>
+            Export XLSX (vue actuelle)
           </button>
         </div>
       </div>
@@ -361,7 +396,8 @@ export const HistoryView = ({
                 <th>Date</th>
                 <th>Type</th>
                 <th style={{ textAlign: 'right' }}>Montant</th>
-                <th>Carnet / Client</th>
+                    <th>Carnet</th>
+                    <th>Client</th>
                 <th>Agent / Initiateur</th>
                 <th>Détails</th>
               </tr>
@@ -372,14 +408,8 @@ export const HistoryView = ({
                       <td>{ev.date && !isNaN(Date.parse(ev.date)) ? new Date(ev.date).toLocaleString('fr-FR') : '-'}</td>
                   <td>{ev.kind}</td>
                   <td style={{ textAlign: 'right' }}>{ev.amount ? ev.amount.toLocaleString() + ' FC' : '-'}</td>
-                  <td>
-                    {ev.carnet_number ? (
-                      <>
-                        <strong>{ev.carnet_number}</strong>
-                        <div style={{ fontSize: 12, color: 'var(--text-light)' }}>{ev.client_name}</div>
-                      </>
-                    ) : ev.client_name || '-'}
-                  </td>
+                      <td>{ev.carnet_number ?? '-'}</td>
+                      <td>{ev.client_name ?? '-'}</td>
                   <td>{ev.agent_name || ev.created_by || '-'}</td>
                   <td>{ev.description}</td>
                 </tr>

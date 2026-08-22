@@ -16,6 +16,7 @@ interface ClientsViewProps {
         carnet: Omit<SavingsCarnet, 'id' | 'carnet_number' | 'supervisor_id' | 'status' | 'created_at' | 'updated_at'>,
         firstDeposit: number
     ) => Promise<void>;
+    onDeleteClient?: (clientId: string) => void;
 }
 
 export const ClientsView: React.FC<ClientsViewProps> = ({
@@ -24,7 +25,8 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
     profiles = [],
     onCreateClient,
     onSelectClientForCarnet: _onSelectClientForCarnet,
-    onCreateCarnet
+    onCreateCarnet,
+    onDeleteClient
 }) => {
     // Basic Form States
     const [name, setName] = useState('');
@@ -563,6 +565,20 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
                                                         >
                                                             <Download size={14} />
                                                         </button>
+                                                        {(currentUser.role === 'admin_principal' || currentUser.role === 'super_admin') && onDeleteClient && (
+                                                            <button
+                                                                className="btn btn-danger"
+                                                                style={{ padding: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                                                onClick={() => {
+                                                                    if (window.confirm(`Confirmer la suppression du client ${c.name} (tous ses carnets seront aussi supprimés) ?`)) {
+                                                                        onDeleteClient(c.id);
+                                                                    }
+                                                                }}
+                                                                title="Supprimer le client"
+                                                            >
+                                                                🗑
+                                                            </button>
+                                                        )}
                                                         {currentUser.role === 'agent' && onCreateCarnet && (
                                                             <button
                                                                 className="btn btn-primary"

@@ -13,6 +13,7 @@ interface CarnetsViewProps {
     onUpdateDailyMise: (carnetId: string, newMise: number) => void;
     onRequestWithdrawal: (carnetId: string, amount: number) => void;
     onDeleteDeposit?: (depositId: string) => void;
+    onDeleteCarnet?: (carnetId: string) => void;
     requests?: WithdrawalRequest[];
     onCancelWithdrawalRequest?: (requestId: string) => void;
     selectedClientFromQuickLink: Client | null;
@@ -30,6 +31,7 @@ export const CarnetsView: React.FC<CarnetsViewProps> = ({
     onUpdateDailyMise,
     onRequestWithdrawal,
     onDeleteDeposit,
+    onDeleteCarnet,
     requests = [],
     onCancelWithdrawalRequest,
     selectedClientFromQuickLink,
@@ -528,6 +530,19 @@ export const CarnetsView: React.FC<CarnetsViewProps> = ({
                                             {canEditParam(activeCarnetDetails.created_at) ? 'Modifiable (même journée)' : 'Lecture seule'}
                                         </span>
                                     )}
+                                        {(currentUser.role === 'admin_principal' || currentUser.role === 'super_admin') && onDeleteCarnet && (
+                                            <button
+                                                className="btn btn-danger no-print"
+                                                style={{ marginTop: 6, padding: '6px 10px', fontSize: 13 }}
+                                                onClick={() => {
+                                                    if (window.confirm(`Confirmer la suppression du carnet ${activeCarnetDetails.carnet_number} ? Tous les dépôts et écritures associées seront supprimés.`)) {
+                                                        onDeleteCarnet(activeCarnetDetails.id);
+                                                    }
+                                                }}
+                                            >
+                                                Supprimer le Carnet
+                                            </button>
+                                        )}
                                 </div>
                             </div>
 

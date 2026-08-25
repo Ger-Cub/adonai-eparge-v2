@@ -562,49 +562,7 @@ class SimulatedDB {
         }
     }
 
-    // Delete client and cascade
-    async deleteClient(clientId: string): Promise<void> {
-        if (!supabase) return;
-        try {
-            // Find carnets for this client
-            const { data: carnets } = await supabase.from('savings_carnets').select('id').eq('client_id', clientId);
-            const carnetIds = (carnets || []).map((c: any) => c.id);
 
-            if (carnetIds.length) {
-                // Delete deposits
-                await supabase.from('carnet_deposits').delete().in('carnet_id', carnetIds);
-                // Delete ledger entries
-                await supabase.from('ledger').delete().in('carnet_id', carnetIds);
-                // Delete requests
-                await supabase.from('withdrawal_requests').delete().in('carnet_id', carnetIds);
-                // Delete withdrawals
-                await supabase.from('withdrawals').delete().in('carnet_id', carnetIds);
-                // Delete carnets
-                await supabase.from('savings_carnets').delete().in('id', carnetIds);
-            }
-
-            // Finally delete client
-            const { error } = await supabase.from('clients').delete().eq('id', clientId);
-            if (error) throw error;
-        } catch (e: any) {
-            throw e;
-        }
-    }
-
-    // Delete a single carnet with cascading related entries
-    async deleteCarnet(carnetId: string): Promise<void> {
-        if (!supabase) return;
-        try {
-            await supabase.from('carnet_deposits').delete().eq('carnet_id', carnetId);
-            await supabase.from('ledger').delete().eq('carnet_id', carnetId);
-            await supabase.from('withdrawal_requests').delete().eq('carnet_id', carnetId);
-            await supabase.from('withdrawals').delete().eq('carnet_id', carnetId);
-            const { error } = await supabase.from('savings_carnets').delete().eq('id', carnetId);
-            if (error) throw error;
-        } catch (e: any) {
-            throw e;
-        }
-    }
 
     // 6. Withdrawal Request
     async createRequest(request: Omit<WithdrawalRequest, 'id' | 'status' | 'created_at' | 'updated_at'>): Promise<WithdrawalRequest> {
@@ -1140,6 +1098,50 @@ class SupabaseDB {
         if (!supabase) return;
         const { error } = await supabase.from('user_profiles').delete().eq('id', id);
         if (error) throw error;
+    }
+
+    // Delete client and cascade
+    async deleteClient(clientId: string): Promise<void> {
+        if (!supabase) return;
+        try {
+            // Find carnets for this client
+            const { data: carnets } = await supabase.from('savings_carnets').select('id').eq('client_id', clientId);
+            const carnetIds = (carnets || []).map((c: any) => c.id);
+
+            if (carnetIds.length) {
+                // Delete deposits
+                await supabase.from('carnet_deposits').delete().in('carnet_id', carnetIds);
+                // Delete ledger entries
+                await supabase.from('ledger').delete().in('carnet_id', carnetIds);
+                // Delete requests
+                await supabase.from('withdrawal_requests').delete().in('carnet_id', carnetIds);
+                // Delete withdrawals
+                await supabase.from('withdrawals').delete().in('carnet_id', carnetIds);
+                // Delete carnets
+                await supabase.from('savings_carnets').delete().in('id', carnetIds);
+            }
+
+            // Finally delete client
+            const { error } = await supabase.from('clients').delete().eq('id', clientId);
+            if (error) throw error;
+        } catch (e: any) {
+            throw e;
+        }
+    }
+
+    // Delete a single carnet with cascading related entries
+    async deleteCarnet(carnetId: string): Promise<void> {
+        if (!supabase) return;
+        try {
+            await supabase.from('carnet_deposits').delete().eq('carnet_id', carnetId);
+            await supabase.from('ledger').delete().eq('carnet_id', carnetId);
+            await supabase.from('withdrawal_requests').delete().eq('carnet_id', carnetId);
+            await supabase.from('withdrawals').delete().eq('carnet_id', carnetId);
+            const { error } = await supabase.from('savings_carnets').delete().eq('id', carnetId);
+            if (error) throw error;
+        } catch (e: any) {
+            throw e;
+        }
     }
 
     // 2. Create Client
